@@ -1,0 +1,13 @@
+{
+  "name": "mc_plugins",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/mc.mjs start",
+    "stop": "node scripts/mc.mjs stop",
+    "restart": "node scripts/mc.mjs restart",
+    "build": "node scripts/mc.mjs build",
+    "deploy": "node scripts/mc.mjs deploy",
+    "dev": "node scripts/mc.mjs dev",
+    "console": "node scripts/mc.mjs console"
+  }
+}

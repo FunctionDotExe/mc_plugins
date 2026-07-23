@@ -1,0 +1,75 @@
+name: WeaponsPlugin
+version: '0.1.0'
+main: dev.rbm72.weaponsplugin.WeaponsPlugin
+api-version: '26.2'
+description: Custom weapons and bosses for our server
+author: rbm72
+softdepend: [WorldGuard, DecentHolograms]
+
+commands:
+  giveweapon:
+    description: Gives you a custom weapon
+    usage: /giveweapon <id>
+    permission: weaponsplugin.give
+  weapons:
+    description: Opens the weapon menu
+    usage: /weapons
+  opcooldown:
+    description: Toggles cooldown bypass for every weapon
+    usage: /opcooldown
+    permission: weaponsplugin.opcooldown
+  bossspawn:
+    description: Opens the boss catalog GUI, or spawns a boss directly by id
+    usage: /bossspawn [id]
+    permission: weaponsplugin.boss.spawn
+  bossdespawn:
+    description: Despawns a live boss
+    usage: /bossdespawn <id>
+    permission: weaponsplugin.boss.spawn
+  bossinfo:
+    description: Shows a boss's health, arena radius, phases, and loot odds
+    usage: /bossinfo <id>
+  bossreload:
+    description: Reloads config.yml tuning without a full server /reload
+    usage: /bossreload
+    permission: weaponsplugin.boss.admin
+  bosshardmode:
+    description: Toggles hard mode for a boss (applies on its next spawn)
+    usage: /bosshardmode <id>
+    permission: weaponsplugin.boss.admin
+  hub:
+    description: Opens the hub menu (ender chest & accessories)
+    usage: /hub
+  enderchest:
+    description: Opens your ender chest, or an online player's (op)
+    usage: /enderchest [player]
+    aliases: [ec, echest]
+  giveaccessory:
+    description: Gives you a custom accessory
+    usage: /giveaccessory <id>
+    permission: weaponsplugin.give
+  givearmor:
+    description: Gives you a custom armor piece
+    usage: /givearmor <id>
+    permission: weaponsplugin.give
+  giveshield:
+    description: Gives you a custom shield
+    usage: /giveshield <id>
+    permission: weaponsplugin.give
+
+permissions:
+  weaponsplugin.give:
+    description: Allows giving yourself custom weapons
+    default: op
+  weaponsplugin.opcooldown:
+    description: Allows toggling cooldown bypass
+    default: op
+  weaponsplugin.boss.spawn:
+    description: Allows spawning and despawning bosses
+    default: op
+  weaponsplugin.boss.admin:
+    description: Allows reloading boss tuning and toggling hard mode
+    default: op
+  weaponsplugin.enderchest.others:
+    description: Allows viewing other players' ender chests
+    default: op

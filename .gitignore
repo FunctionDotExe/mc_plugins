@@ -1,0 +1,22 @@
+# Local Paper dev server (runtime, world data, logs, downloaded jars)
+server/
+
+# Node
+node_modules/
+
+# Gradle
+plugin/.gradle/
+plugin/build/
+plugin/bin/
+# Machine-local JDK path / truststore — copy plugin/gradle.properties.example instead
+plugin/gradle.properties
+
+# Editor/OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Claude Code session scratch (plan/review working state, not project source)
+.superpowers/

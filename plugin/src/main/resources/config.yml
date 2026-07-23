@@ -1,0 +1,472 @@
+# Discord broadcast on boss kills and rare drops. Leave webhook-url blank to
+# no-op the whole feature (no secret ships in this file — paste your own).
+discord:
+  webhook-url: ""
+  rare-drop-threshold: 0.05
+
+# Server-wide combat tunables shared by every weapon (see Weapon.java for the
+# per-weapon override keys, e.g. weapons.<id>.crit-chance, that fall back to
+# these where noted).
+combat:
+  # Applied to every weapon hit on another player, independently of the PvE
+  # numbers those same weapons use against mobs/bosses.
+  pvp-damage-multiplier: 0.65
+
+# Per-weapon tunables. Each key under `weapons.<id>` is read by that
+# weapon's class — see the class's constructor for what it uses and the
+# defaults it falls back to if a key is missing.
+
+weapons:
+  stormbreaker:
+    cooldown-seconds: 6.0
+    melee-damage-bonus: 2.0
+    ability-damage: 6.0
+    dash-speed: 1.6
+    dash-ticks: 10
+    hit-radius: 1.6
+    chain-radius: 3.0
+    chain-damage-fraction: 0.5
+
+  flame_katana:
+    cooldown-seconds: 7.0
+    melee-damage-bonus: 3.0
+    ability-damage: 7.0
+    dash-speed: 1.5
+    dash-ticks: 10
+    hit-radius: 1.6
+    burn-ticks: 60
+    trail-damage: 1.5
+    trail-duration-ticks: 60
+
+  thunder_hammer:
+    cooldown-seconds: 10.0
+    melee-damage-bonus: 4.0
+    ability-damage: 9.0
+    radius: 4.0
+
+  frost_scythe:
+    cooldown-seconds: 8.0
+    melee-damage-bonus: 2.5
+    ability-damage: 5.0
+    shatter-bonus-damage: 4.0
+    radius: 3.5
+    slow-ticks: 100
+    slow-amplifier: 2
+
+  shadow_daggers:
+    cooldown-seconds: 7.0
+    melee-damage-bonus: 2.0
+    ability-damage: 8.0
+    range: 8.0
+    blink-distance: 4.0
+    flurry-hits: 3
+    poison-ticks: 60
+
+  arcane_staff:
+    melee-damage-bonus: 1.0
+    ability1-cooldown-seconds: 5.0
+    ability2-cooldown-seconds: 7.0
+    ability3-cooldown-seconds: 8.0
+    ultimate-cooldown-seconds: 45.0
+    missile-damage: 4.0
+    missile-speed: 2.0
+    missile-count: 3
+    beam-damage: 9.0
+    beam-range: 15.0
+    blink-distance: 6.0
+    laser-damage-per-tick: 3.0
+    laser-duration-ticks: 40
+    laser-range: 18.0
+    standing-still-damage-bonus: 0.2
+
+  tidal_trident:
+    melee-damage-bonus: 2.0
+    ability1-cooldown-seconds: 5.0
+    ability2-cooldown-seconds: 8.0
+    ability3-cooldown-seconds: 6.0
+    ultimate-cooldown-seconds: 50.0
+    wave-damage: 6.0
+    wave-range: 5.0
+    whirlpool-damage-per-tick: 1.0
+    whirlpool-radius: 4.0
+    whirlpool-duration-ticks: 40
+    jet-speed: 1.8
+    jet-damage: 5.0
+    jet-ticks: 12
+    jet-hit-radius: 1.6
+    tsunami-max-radius: 8.0
+    tsunami-damage: 10.0
+    tsunami-rings: 4
+
+  void_blade:
+    melee-damage-bonus: 3.0
+    ability1-cooldown-seconds: 7.0
+    ability2-cooldown-seconds: 9.0
+    ability3-cooldown-seconds: 6.0
+    ultimate-cooldown-seconds: 55.0
+    armor-bypass-chance: 0.1
+    phase-range: 6.0
+    rift-pull-radius: 5.0
+    rift-damage: 3.0
+    rift-duration-ticks: 30
+    slash-damage: 6.0
+    slash-ticks: 6
+    slash-hit-radius: 1.6
+    black-hole-pull-radius: 7.0
+    black-hole-pull-duration-ticks: 40
+    black-hole-explosion-damage: 14.0
+    black-hole-explosion-radius: 5.0
+
+  wind_spear:
+    cooldown-seconds: 5.0
+    melee-damage-bonus: 1.5
+    ability-damage: 4.0
+    launch-speed: 2.0
+    hit-radius: 1.6
+    flight-ticks: 14
+
+  kings_judgment:
+    cooldown-seconds: 9.0
+    melee-damage-bonus: 4.0
+    ability-damage: 12.0
+    radius: 4.0
+    knockup: 0.6
+
+  solar_greatsword:
+    melee-damage-bonus: 3.5
+    ability1-cooldown-seconds: 6.0
+    ability2-cooldown-seconds: 9.0
+    ability3-cooldown-seconds: 5.0
+    ultimate-cooldown-seconds: 55.0
+    undead-damage-bonus: 0.5
+    beam-damage: 8.0
+    beam-range: 14.0
+    explosion-damage: 7.0
+    explosion-radius: 4.0
+    cleave-damage: 6.0
+    cleave-range: 3.0
+    pillar-damage-per-tick: 2.5
+    pillar-duration-ticks: 60
+    pillar-radius: 2.0
+
+  lunar_blade:
+    melee-damage-bonus: 2.5
+    ability1-cooldown-seconds: 5.0
+    ability2-cooldown-seconds: 6.0
+    ability3-cooldown-seconds: 7.0
+    ultimate-cooldown-seconds: 50.0
+    night-damage-bonus: 0.3
+    crescent-damage: 5.0
+    crescent-speed: 1.8
+    dash-damage: 5.0
+    dash-distance: 5.0
+    gravity-damage: 4.0
+    gravity-radius: 4.0
+    gravity-duration-ticks: 30
+    eclipse-duration-ticks: 160
+    eclipse-damage-bonus: 0.4
+
+  plague_scythe:
+    melee-damage-bonus: 2.0
+    ability1-cooldown-seconds: 7.0
+    ability2-cooldown-seconds: 5.0
+    ability3-cooldown-seconds: 6.0
+    ultimate-cooldown-seconds: 50.0
+    cloud-damage-per-tick: 1.5
+    cloud-radius: 3.0
+    cloud-duration-ticks: 80
+    cloud-range-ahead: 5.0
+    infect-range: 3.5
+    infect-poison-ticks: 100
+    spore-speed: 1.6
+    spore-damage: 4.0
+    spore-cloud-radius: 2.5
+    plague-initial-radius: 5.0
+    plague-chain-radius: 4.0
+    plague-duration-ticks: 100
+    plague-damage-per-tick: 1.5
+    death-cloud-radius: 3.0
+    death-cloud-duration-ticks: 60
+    death-cloud-damage-per-tick: 1.0
+
+  dragon_fang:
+    melee-damage-bonus: 3.0
+    ability1-cooldown-seconds: 8.0
+    ability2-cooldown-seconds: 6.0
+    ability3-cooldown-seconds: 7.0
+    ultimate-cooldown-seconds: 55.0
+    roar-radius: 4.5
+    roar-knockback: 1.5
+    breath-damage: 5.0
+    breath-range: 6.0
+    leap-power: 1.4
+    leap-slow-fall-ticks: 60
+    dragon-form-duration-ticks: 180
+    dragon-form-damage-bonus: 0.35
+
+  celestial_bow:
+    melee-damage-bonus: 1.0
+    ability1-cooldown-seconds: 9.0
+    ability2-cooldown-seconds: 4.0
+    ability3-cooldown-seconds: 7.0
+    ultimate-cooldown-seconds: 55.0
+    rain-strike-count: 5
+    rain-damage-per-strike: 3.0
+    rain-radius: 3.5
+    homing-speed: 1.6
+    homing-damage: 6.0
+    comet-speed: 1.4
+    comet-damage: 9.0
+    comet-explosion-radius: 2.5
+    bonus-explosion-multiplier: 2.0
+    meteor-strike-count: 8
+    meteor-damage-per-strike: 5.0
+    meteor-radius: 6.0
+
+  blood_reaper:
+    melee-damage-bonus: 3.0
+    ability1-cooldown-seconds: 8.0
+    ability2-cooldown-seconds: 5.0
+    ability3-cooldown-seconds: 7.0
+    ultimate-cooldown-seconds: 55.0
+    low-hp-damage-bonus-max: 0.5
+    sacrifice-hp-cost: 3.0
+    sacrifice-damage: 9.0
+    sacrifice-radius: 4.0
+    lifesteal-damage: 6.0
+    lifesteal-range: 3.0
+    lifesteal-heal-fraction: 0.6
+    explosion-damage: 6.0
+    explosion-radius: 3.5
+    explosion-heal-fraction: 0.3
+    drain-radius: 5.0
+    drain-duration-ticks: 50
+    drain-damage-per-tick: 1.0
+
+  chrono_blade:
+    melee-damage-bonus: 3.5
+    ability1-cooldown-seconds: 9.0
+    ability2-cooldown-seconds: 6.0
+    ability3-cooldown-seconds: 12.0
+    ultimate-cooldown-seconds: 60.0
+    perfect-timing-window-ms: 1000
+    perfect-timing-damage-bonus: 0.3
+    slow-field-radius: 4.5
+    slow-field-duration-ticks: 80
+    afterimage-count: 4
+    afterimage-distance: 6.0
+    afterimage-lifetime-ticks: 60
+    rewind-buffer-seconds: 5.0
+    freeze-radius: 6.0
+    freeze-duration-ticks: 70
+
+  storm_chakrams:
+    melee-damage-bonus: 2.0
+    ability1-cooldown-seconds: 6.0
+    ability2-cooldown-seconds: 5.0
+    ability3-cooldown-seconds: 8.0
+    ultimate-cooldown-seconds: 45.0
+    return-damage: 5.0
+    return-speed: 1.2
+    return-max-distance: 8.0
+    return-hit-radius: 1.4
+    catch-cooldown-reduction-seconds: 1.5
+    chain-damage: 5.0
+    chain-radius: 3.0
+    chain-speed: 1.8
+    orbit-count: 3
+    orbit-radius: 2.5
+    orbit-duration-ticks: 60
+    orbit-damage-per-tick: 1.5
+    storm-duration-ticks: 50
+    storm-radius: 4.5
+    storm-damage-per-tick: 2.0
+
+  earthbreaker_axe:
+    melee-damage-bonus: 2.5
+    ability1-cooldown-seconds: 6.0
+    ability2-cooldown-seconds: 10.0
+    ability3-cooldown-seconds: 6.0
+    ultimate-cooldown-seconds: 45.0
+    knockback-resistance-amount: 0.3
+    crack-range: 6.0
+    crack-damage: 4.0
+    crack-slow-ticks: 60
+    wall-length: 3
+    wall-height: 2
+    wall-duration-ticks: 100
+    boulder-speed: 1.4
+    boulder-damage: 7.0
+    boulder-radius: 2.5
+    quake-max-radius: 7.0
+    quake-damage: 6.0
+    quake-rings: 4
+
+  necromancer_staff:
+    melee-damage-bonus: 1.5
+    ability1-cooldown-seconds: 20.0
+    ability2-cooldown-seconds: 15.0
+    ability3-cooldown-seconds: 6.0
+    ultimate-cooldown-seconds: 60.0
+    skeleton-count: 2
+    skeleton-duration-ticks: 400
+    skeleton-health-bonus: 10.0
+    skeleton-damage-bonus: 2.0
+    ghost-count: 2
+    ghost-duration-ticks: 300
+    barrage-projectile-count: 5
+    barrage-damage: 3.0
+    barrage-speed: 1.6
+    barrage-spread-degrees: 8.0
+    guardian-duration-ticks: 600
+    guardian-health-multiplier: 3.0
+    guardian-damage-multiplier: 2.5
+    guardian-scale: 1.6
+    kill-buff-duration-ticks: 100
+
+  sakura_blade:
+    melee-damage-bonus: 2.0
+    ability1-cooldown-seconds: 5.0
+    ability2-cooldown-seconds: 6.0
+    ability3-cooldown-seconds: 7.0
+    ultimate-cooldown-seconds: 40.0
+    combo-window-ms: 2500
+    combo-max-stacks: 3
+    cleave-damage: 4.0
+    cleave-range: 3.0
+    dash-damage: 4.5
+    dash-distance: 5.0
+    bloom-damage: 5.0
+    bloom-radius: 3.5
+    field-radius: 3.0
+    field-duration-ticks: 80
+    field-damage-per-tick: 1.2
+    field-range-ahead: 4.0
+
+  starbreaker:
+    melee-damage-bonus: 4.0
+    ability1-cooldown-seconds: 6.0
+    ability2-cooldown-seconds: 7.0
+    ability3-cooldown-seconds: 9.0
+    ultimate-cooldown-seconds: 65.0
+    momentum-window-ms: 3000
+    momentum-damage-bonus: 0.35
+    spread-count: 5
+    spread-damage: 4.0
+    spread-speed: 1.8
+    spread-spread-degrees: 10.0
+    warp-range: 10.0
+    warp-damage: 9.0
+    supernova-damage: 8.0
+    supernova-radius: 4.5
+    galaxy-pull-radius: 7.0
+    galaxy-pull-duration-ticks: 50
+    galaxy-explosion-damage: 16.0
+    galaxy-explosion-radius: 6.0
+
+# Per-boss tunables. Each key under `bosses.<id>` is read by that boss's
+# definition or one of its attacks — see the class constructors for what
+# they use and the defaults they fall back to if a key is missing.
+
+bosses:
+  fallen_king:
+    max-health: 300.0
+    arena-radius: 20.0
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    heavy-swing-damage: 9.0
+    heavy-swing-range: 3.5
+    heavy-swing-telegraph-ticks: 14
+    heavy-swing-cooldown-seconds: 3.0
+
+    triple-combo-damage-per-hit: 5.0
+    triple-combo-range: 3.0
+    triple-combo-telegraph-ticks: 10
+    triple-combo-cooldown-seconds: 6.0
+
+    dash-slash-damage: 8.0
+    dash-slash-speed: 1.7
+    dash-slash-hit-radius: 1.8
+    dash-slash-dash-ticks: 10
+    dash-slash-telegraph-ticks: 14
+    dash-slash-cooldown-seconds: 7.0
+
+    shockwave-slam-damage: 10.0
+    shockwave-slam-radius: 5.0
+    shockwave-slam-knockup: 0.7
+    shockwave-slam-telegraph-ticks: 16
+    shockwave-slam-cooldown-seconds: 9.0
+
+    summon-royal-guards-count: 2
+    summon-royal-guards-max-adds: 4
+    summon-royal-guards-telegraph-ticks: 20
+    summon-royal-guards-cooldown-seconds: 18.0
+
+    spinning-slash-damage: 9.0
+    spinning-slash-radius: 5.5
+    spinning-slash-telegraph-ticks: 16
+    spinning-slash-cooldown-seconds: 8.0
+
+    sword-rain-damage: 7.0
+    sword-rain-impact-radius: 2.0
+    sword-rain-impact-count: 4
+    sword-rain-telegraph-ticks: 20
+    sword-rain-cooldown-seconds: 9.0
+
+    ground-fissure-damage: 6.0
+    ground-fissure-range: 8.0
+    ground-fissure-width: 1.5
+    ground-fissure-slow-ticks: 60
+    ground-fissure-telegraph-ticks: 18
+    ground-fissure-cooldown-seconds: 8.0
+
+    jump-slam-damage: 11.0
+    jump-slam-radius: 4.5
+    jump-slam-knockup: 0.8
+    jump-slam-telegraph-ticks: 16
+    jump-slam-air-ticks: 14
+    jump-slam-cooldown-seconds: 10.0
+
+    binding-sigils-count: 3
+    binding-sigils-health: 26.0
+    binding-sigils-channel-ticks: 140
+    binding-sigils-pool-damage: 3.0
+    binding-sigils-pool-radius: 2.5
+    binding-sigils-empower-damage-bonus: 4.0
+    binding-sigils-empower-duration-ticks: 400
+    binding-sigils-stagger-duration-ticks: 60
+    binding-sigils-telegraph-ticks: 22
+    binding-sigils-cooldown-seconds: 28.0
+
+    enrage-slash-safe-zone-radius: 2.2
+    enrage-slash-safe-zone-count: 3
+
+    black-sword-rain-damage: 8.0
+    black-sword-rain-impact-radius: 2.2
+    black-sword-rain-impact-count: 6
+    black-sword-rain-telegraph-ticks: 22
+    black-sword-rain-cooldown-seconds: 11.0
+
+    dark-explosion-damage: 10.0
+    dark-explosion-radius: 5.0
+    dark-explosion-telegraph-ticks: 18
+    dark-explosion-cooldown-seconds: 10.0
+
+    teleport-strike-damage: 9.0
+    teleport-strike-range: 2.5
+    teleport-strike-telegraph-ticks: 14
+    teleport-strike-cooldown-seconds: 9.0
+
+    enrage-slash-damage: 8.0
+    enrage-slash-telegraph-ticks: 30
+    enrage-slash-cooldown-seconds: 14.0
+
+    hazard-damage: 6.0
+    hazard-radius: 4.0
+    hazard-telegraph-ticks: 24
+    hazard-block-count: 5
+    hazard-drop-height: 12.0
+    hazard-cooldown-seconds: 12.0
