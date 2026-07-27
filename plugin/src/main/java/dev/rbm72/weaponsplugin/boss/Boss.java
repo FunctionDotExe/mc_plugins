@@ -30,12 +30,41 @@ public abstract class Boss {
 
     public abstract LootTable lootTable();
 
+    /**
+     * Scripted interruptions that fire once at each of their health milestones, independent of which
+     * phase is running — shield checks, beacon drops, and anything else that stops the fight, names
+     * one task, and puts a timer on it. Empty by default; a boss opts in.
+     */
+    public List<BossEvent> events() {
+        return List.of();
+    }
+
     public double maxHealth() {
         return configDouble("max-health", 300.0);
     }
 
     public double arenaRadius() {
-        return configDouble("arena-radius", 20.0);
+        return configDouble("arena-radius", 36.0);
+    }
+
+    /**
+     * Base {@link org.bukkit.attribute.Attribute#SCALE} applied at spawn, before the per-fight
+     * player-count health scaling and any boss-specific size logic in its first phase's onEnter
+     * (which runs after this and overrides it — see {@code AmalgamatedBulk}/{@code WeepingColossus}/
+     * {@code Voidwyrm} for bosses with their own deliberate size).
+     */
+    public double baseScale() {
+        return configDouble("scale", 1.5);
+    }
+
+    /**
+     * Scalar applied to every point of damage this boss deals to a player, on top of whatever its
+     * individual attacks are tuned for. One knob to make a whole boss hit harder or softer without
+     * editing the dozens of per-attack damage values in config — see {@link BossDamageListener},
+     * which applies it centrally to any hit credited to the boss entity.
+     */
+    public double outgoingDamageMultiplier() {
+        return configDouble("damage-multiplier", 1.0);
     }
 
     /** No themed ambiance unless overridden. */
@@ -88,6 +117,17 @@ public abstract class Boss {
         return configBoolean("worldguard-protection", true);
     }
 
+    /**
+     * Temp per-player world-border wall around the arena while this boss is live, so players can't
+     * wander (or get knocked) out of the fight. Vanilla client-side border — no blocks placed.
+     * Default off: every boss now fights inside its own walled realm (see {@code realm} package),
+     * whose physical walls already do this job — the border shimmer would otherwise render right on
+     * top of that wall. Only worth turning on for a boss still fought in the open, unwalled world.
+     */
+    public boolean arenaBarrierEnabled() {
+        return configBoolean("arena-barrier", false);
+    }
+
     /** Hard ceiling on any explosion power this boss requests (server-stability cap, not a grief-scope cap). */
     public float maxExplosionPower() {
         return (float) configDouble("max-explosion-power", 4.0);
@@ -106,5 +146,24 @@ public abstract class Boss {
     /** Soft ceiling attacks should keep per-tick particle counts under. */
     public int maxParticlesPerTick() {
         return configInt("max-particles-per-tick", 400);
+    }
+
+    /**
+     * How much of an attack's listed cooldown gets cut by the final phase (see
+     * {@code BossInstance#phaseCooldownScale}) — 0.45 means the last phase's cooldowns run at 55% of
+     * what's authored. Softer than the original hardcoded 0.65 so the ramp stays readable.
+     */
+    public double phaseCooldownProgressCut() {
+        return configDouble("phase-cooldown-progress-cut", 0.45);
+    }
+
+    /** Extra multiplier applied only in the enrage phase, on top of {@link #phaseCooldownProgressCut()}. */
+    public double phaseCooldownEnrageCut() {
+        return configDouble("phase-cooldown-enrage-cut", 0.85);
+    }
+
+    /** Floor on {@code phaseCooldownScale} — cooldowns never shrink past this fraction of authored. */
+    public double phaseCooldownFloor() {
+        return configDouble("phase-cooldown-floor", 0.45);
     }
 }

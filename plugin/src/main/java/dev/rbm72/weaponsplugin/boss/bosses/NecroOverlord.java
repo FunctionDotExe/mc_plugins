@@ -4,9 +4,15 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
+import dev.rbm72.weaponsplugin.boss.events.PullNukeEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.ParasiteAddMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.SharedPoolMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.TelegraphedEruptionMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.AfflictionAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.ArmyOfTheDeadAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BoneSpikesAttack;
@@ -70,27 +76,30 @@ public final class NecroOverlord extends Boss {
                 Sound.ENTITY_WITHER_AMBIENT);
 
         this.phases = List.of(
-                new BossPhase("Phase 1", 1.0,
+                // Grave Bloom: gravestones sprout under whoever stands still and the hands beneath them
+                // grab. A footwork opener — nothing is gated, the ground simply objects to camping.
+                new BossPhase("Grave Bloom", 1.0,
                         List.of(raiseUndead, boneSpikes, deathBolt, graveGrasp),
                         false, NecroOverlord::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Bone Reliquaries", NamedTextColor.DARK_GREEN),
-                                Material.SOUL_LANTERN, NECROTIC, 0, false)),
+                        this::graveBloom),
+                // Bound Trio: his signature, and the roster's one true coordination check. Three wraiths
+                // share one life and the binding drains only by damage all three took together, so no
+                // amount of focused damage from one player moves it at all.
                 new BossPhase("The Dead Rise", 0.75,
                         List.of(soulDrain, witherCloud, raiseUndead, boneSpikes, soulAnchors, necroticDecay),
                         false, NecroOverlord::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Withered Reliquaries", NamedTextColor.DARK_GREEN),
-                                Material.SOUL_LANTERN, NECROTIC, 1, false)),
+                        this::boundTrio),
+                // Soul Harvest: an orb latches onto one of you, drains them and feeds him while it
+                // lives. He never stops being hittable — the group is choosing where damage goes.
                 new BossPhase("Necropolis", 0.40,
                         List.of(boneStorm, soulDrain, witherCloud, graveGrasp, soulAnchors, mirror, necroticDecay),
                         false, NecroOverlord::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Grave Sigils", NamedTextColor.GREEN),
-                                Material.BONE_BLOCK, BONE, 2, false)),
+                        this::soulHarvest),
+                // Ungated: nothing left to hide behind, just the whole army and the lich swinging.
                 new BossPhase("Army of the Dead", 0.15,
                         List.of(boneSpikes, deathBolt, graveGrasp, soulDrain, boneStorm, armyOfTheDead, soulAnchors,
                                 mirror),
-                        true, NecroOverlord::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Lich's Anchor", NamedTextColor.DARK_GREEN),
-                                Material.NETHER_STAR, NECROTIC, 3, true)));
+                        true, NecroOverlord::onEnterEnrage));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Soulharvester(plugin).createItem())
@@ -124,6 +133,71 @@ public final class NecroOverlord extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Grave Bloom: headstones break the surface under anyone standing still, and the hands beneath
+     * them root whoever is slow to move off. The snare matters more than the damage — his whole kit
+     * is still firing while you are held.
+     */
+    private PhaseMechanic graveBloom(BossInstance instance) {
+        return new TelegraphedEruptionMechanic(instance, "Grave Bloom", NECROTIC,
+                Particle.SOUL, Sound.BLOCK_BONE_BLOCK_BREAK, Sound.ENTITY_ZOMBIE_AMBIENT,
+                configInt("grave-bloom-interval-ticks", 75),
+                configInt("grave-bloom-telegraph-ticks", 34),
+                configDouble("grave-bloom-radius", 2.8),
+                configDouble("grave-bloom-damage", 11.0),
+                configInt("grave-bloom-snare-ticks", 45),
+                configInt("grave-bloom-marks-per-volley", 3));
+    }
+
+    /**
+     * Bound Trio: three wraiths, one shared life, and a binding that only gives ground to damage all
+     * three of them took inside the same window. He is blunted rather than immune while it stands, so
+     * a group that cannot split its damage still finishes — just much later.
+     */
+    private PhaseMechanic boundTrio(BossInstance instance) {
+        return new SharedPoolMechanic(instance, "Bound Trio", "Bound Wraith", NECROTIC,
+                EntityType.WITHER_SKELETON,
+                configInt("bound-trio-count", 3),
+                configDouble("bound-trio-pool", 120.0),
+                configDouble("bound-trio-display-health", 60.0),
+                configInt("bound-trio-sync-window-ticks", 80),
+                configInt("bound-trio-exposed-ticks", 170),
+                configDouble("bound-trio-exposed-multiplier", 2.2),
+                configInt("bound-trio-stagger-ticks", 60),
+                configInt("bound-trio-respawn-delay-ticks", 140),
+                configDouble("bound-trio-fail-heal-per-survivor", 12.0),
+                configDouble("bound-trio-spawn-radius", 6.0));
+    }
+
+    /**
+     * Soul Harvest: a tethered orb drains one player and feeds him the whole time it lives, and hands
+     * him a far bigger meal if it survives its window. Late roster, so failing it hardens him
+     * permanently as well as healing him (design rule 4).
+     */
+    private PhaseMechanic soulHarvest(BossInstance instance) {
+        return new ParasiteAddMechanic(instance, "Soul Harvest", "Soul Tether", BONE,
+                EntityType.VEX,
+                configDouble("soul-harvest-health", 40.0),
+                true,
+                configInt("soul-harvest-window-ticks", 200),
+                configInt("soul-harvest-respawn-ticks", 140),
+                configDouble("soul-harvest-heal-per-second", 2.5),
+                configDouble("soul-harvest-drain-per-second", 2.0),
+                configDouble("soul-harvest-reattach-heal", 45.0),
+                configDouble("soul-harvest-reattach-hardening", 0.05),
+                configInt("soul-harvest-exposed-ticks", 150),
+                configDouble("soul-harvest-exposed-multiplier", 1.8));
+    }
+
+    /** Offset from his phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new HitCountShieldEvent(plugin, id(), new double[] {0.88, 0.30}),
+                new PullNukeEvent(plugin, id(), new double[] {0.60, 0.24},
+                        "GRASP OF THE GRAVE", "The dead are pulling you in — break away"));
     }
 
     @Override

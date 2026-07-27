@@ -4,9 +4,15 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.ConvergenceNukeEvent;
+import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.BlinkSnareMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.DecoyMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.ForceFieldMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.ArcaneMissilesAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BanishAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BlinkStrikeAttack;
@@ -64,26 +70,28 @@ public final class VoidSovereign extends Boss {
         TwinRiftsAttack twinRifts = new TwinRiftsAttack(plugin);
 
         this.phases = List.of(
-                new BossPhase("Phase 1", 1.0,
+                // Gravity Well: the floor pulls toward the middle for the whole band. Nothing is
+                // blocked — you simply cannot stand still, and every approach costs ground.
+                new BossPhase("Gravity Well", 1.0,
                         List.of(blinkStrike, arcaneMissiles, voidRift, banish),
                         false, VoidSovereign::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Fractured Anchors", NamedTextColor.DARK_PURPLE),
-                                Material.ECHO_SHARD, VOID_PURPLE, 0, false)),
+                        this::gravityWell),
+                // Ungated: reality is coming apart and he is not hiding behind any of it. Pure race.
                 new BossPhase("Reality Fractures", 0.75,
                         List.of(gravityFlip, singularity, blinkStrike, arcaneMissiles),
-                        false, VoidSovereign::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Fractured Anchors", NamedTextColor.DARK_PURPLE),
-                                Material.ECHO_SHARD, VOID_PURPLE, 1, false)),
+                        false, VoidSovereign::onEnterPhase2),
+                // Mirrorflesh: his signature. He stops being one target, shuffles with his reflections,
+                // and swinging at the wrong one throws you across the room. Costs tempo, never damage.
                 new BossPhase("The Void Beckons", 0.40,
                         List.of(voidZone, singularity, voidRift, banish, twinRifts),
                         false, VoidSovereign::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Null Shards", NamedTextColor.DARK_GRAY),
-                                Material.OBSIDIAN, VOID_BLACK, 2, false)),
+                        this::mirrorflesh),
+                // Blink Snare: he folds one of you out of the fight entirely. Nobody can go and help —
+                // the group is simply a member down until they solve their own way back.
                 new BossPhase("Unmaking", 0.15,
                         List.of(blinkStrike, arcaneMissiles, voidRift, gravityFlip, singularity, collapse, twinRifts),
                         true, VoidSovereign::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Heart of the Void", NamedTextColor.LIGHT_PURPLE),
-                                Material.NETHER_STAR, VOID_PURPLE, 3, true)));
+                        this::blinkSnare));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Nullblade(plugin).createItem())
@@ -118,6 +126,59 @@ public final class VoidSovereign extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Gravity Well: a standing inward current for the whole band, with a lethal core at the middle.
+     * It re-tunes everything else happening at the same time — his blinks and rifts are far harder to
+     * sidestep when the floor is moving under you — without adding a single extra rule.
+     */
+    private PhaseMechanic gravityWell(BossInstance instance) {
+        return new ForceFieldMechanic(instance, "Gravity Well", VOID_PURPLE,
+                ForceFieldMechanic.Direction.INWARD, ForceFieldMechanic.Focus.ARENA_CENTRE,
+                configDouble("gravity-well-pull-per-tick", 0.055),
+                configDouble("gravity-well-core-radius", 5.0),
+                configDouble("gravity-well-core-damage-per-second", 8.0),
+                null);
+    }
+
+    /**
+     * Mirrorflesh: his signature. Reflections stand among him and they trade places on a clock; a
+     * swing at a copy blinks the attacker across the arena. He stays fully hittable throughout, so
+     * being fooled costs tempo and position rather than access.
+     */
+    private PhaseMechanic mirrorflesh(BossInstance instance) {
+        return new DecoyMechanic(instance, "Mirrorflesh", VOID_PURPLE, EntityType.ENDERMAN,
+                configInt("mirrorflesh-decoys", 3),
+                configInt("mirrorflesh-shuffle-ticks", 120),
+                configDouble("mirrorflesh-blink-distance", 18.0),
+                configDouble("mirrorflesh-blink-damage", 6.0),
+                configDouble("mirrorflesh-spawn-radius", 5.0),
+                configInt("mirrorflesh-refresh-ticks", 400));
+    }
+
+    /**
+     * Blink Snare: one player is folded into a bubble nobody else can reach, with a circling rift as
+     * their only way back. The group is briefly and genuinely a member down, which is a different
+     * pressure from any rescue mechanic — and it is solo-safe by construction.
+     */
+    private PhaseMechanic blinkSnare(BossInstance instance) {
+        return new BlinkSnareMechanic(instance, "Blink Snare", VOID_BLACK,
+                configDouble("blink-snare-bubble-radius", 6.0),
+                configInt("blink-snare-ticks", 160),
+                configInt("blink-snare-recast-ticks", 160),
+                configDouble("blink-snare-rift-degrees-per-second", 55.0),
+                configDouble("blink-snare-fail-damage", 20.0),
+                configInt("blink-snare-fail-disorient-ticks", 70));
+    }
+
+    /** Offset from his phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new HitCountShieldEvent(plugin, id(), new double[] {0.86, 0.30}),
+                new ConvergenceNukeEvent(plugin, id(), new double[] {0.58, 0.24},
+                        "COLLAPSE", "Get away from him before it folds"));
     }
 
     @Override

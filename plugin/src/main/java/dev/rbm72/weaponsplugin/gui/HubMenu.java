@@ -24,12 +24,17 @@ import java.util.List;
 public final class HubMenu {
 
     public static final Component TITLE = Component.text("Menu", NamedTextColor.DARK_PURPLE, TextDecoration.BOLD);
-    private static final int SIZE = 27;
-    public static final int ENDER_CHEST_SLOT = 11;
-    public static final int ARMOR_SLOT = 12;
-    public static final int SHIELDS_SLOT = 14;
-    public static final int ACCESSORIES_SLOT = 15;
-    public static final int BOSSES_SLOT = 16;
+    private static final int SIZE = 36;
+    public static final int ENDER_CHEST_SLOT = 10;
+    public static final int ACCESSORIES_SLOT = 12;
+    public static final int STONES_SLOT = 14;
+    public static final int RIDABLES_SLOT = 16;
+    public static final int ARMOR_SLOT = 19;
+    public static final int SHIELDS_SLOT = 21;
+    public static final int BOSSES_SLOT = 23;
+    public static final int REALMS_SLOT = 25;
+    public static final int CONSUMABLES_SLOT = 30;
+    public static final int WEAPONS_SLOT = 32;
 
     private HubMenu() {
     }
@@ -47,6 +52,32 @@ public final class HubMenu {
                 List.of(
                         Component.text("Equip accessories that buff", NamedTextColor.GRAY),
                         Component.text("your weapons.", NamedTextColor.GRAY))));
+        inventory.setItem(STONES_SLOT, button(Material.BREEZE_ROD, NamedTextColor.LIGHT_PURPLE,
+                "✦ Movement Stones", false,
+                List.of(
+                        Component.text("Socket stones for double jumps,", NamedTextColor.GRAY),
+                        Component.text("dashes, wall runs, and more.", NamedTextColor.GRAY))));
+        inventory.setItem(RIDABLES_SLOT, button(Material.SADDLE, NamedTextColor.GREEN,
+                "🐴 Ridables", false,
+                List.of(
+                        Component.text("Equip a saddle to tame and ride", NamedTextColor.GRAY),
+                        Component.text("its matching mob in the world.", NamedTextColor.GRAY))));
+        inventory.setItem(REALMS_SLOT, button(Material.CHORUS_FRUIT, NamedTextColor.LIGHT_PURPLE,
+                "✧ Realms", false,
+                List.of(
+                        Component.text("Grab a Realm Crystal — right-click to", NamedTextColor.GRAY),
+                        Component.text("step into that boss's own dimension.", NamedTextColor.GRAY))));
+
+        inventory.setItem(CONSUMABLES_SLOT, button(Material.GHAST_TEAR, NamedTextColor.GREEN,
+                "✚ Consumables", false,
+                List.of(
+                        Component.text("Healing items that run on charges", NamedTextColor.GRAY),
+                        Component.text("and refill themselves over time.", NamedTextColor.GRAY))));
+        inventory.setItem(WEAPONS_SLOT, button(Material.NETHERITE_SWORD, NamedTextColor.RED,
+                "⚔ Weapons", false,
+                List.of(
+                        Component.text("Browse every weapon, filtered", NamedTextColor.GRAY),
+                        Component.text("by rarity. Same as /weapons.", NamedTextColor.GRAY))));
 
         if (viewer.hasPermission("weaponsplugin.give")) {
             inventory.setItem(ARMOR_SLOT, button(Material.NETHERITE_CHESTPLATE, NamedTextColor.GOLD,

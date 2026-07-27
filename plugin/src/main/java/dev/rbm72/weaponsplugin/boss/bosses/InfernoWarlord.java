@@ -4,9 +4,16 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
+import dev.rbm72.weaponsplugin.boss.events.PullNukeEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.EscalatingDoomMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.ExpandingRingMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.MechanicField;
+import dev.rbm72.weaponsplugin.boss.mechanics.StackMeterMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.AfflictionAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.CinderNovaAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.EruptionAttack;
@@ -68,26 +75,28 @@ public final class InfernoWarlord extends Boss {
                 Sound.BLOCK_FIRE_AMBIENT);
 
         this.phases = List.of(
-                new BossPhase("Phase 1", 1.0,
+                // Moat Eruption: the lava moat throws a wall outward, and each wave leaves fewer ways
+                // through than the last. A timing problem rather than a standing-still problem.
+                new BossPhase("Moat Eruption", 1.0,
                         List.of(flameBreath, fireTrail, meteorRain, magmaThrow),
                         false, InfernoWarlord::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Molten Cores", NamedTextColor.GOLD),
-                                Material.MAGMA_BLOCK, EMBER, 0, false)),
+                        this::moatEruption),
+                // Molten Brand: standing in his heat brands you, and the brand only cools at range. A
+                // melee group has to keep breaking off and coming back rather than parking on him.
                 new BossPhase("Molten Fury", 0.75,
                         List.of(eruption, cinderNova, flameBreath, meteorRain, searingBrand),
                         false, InfernoWarlord::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Molten Cores", NamedTextColor.GOLD),
-                                Material.MAGMA_BLOCK, DEEP_FIRE, 1, false)),
+                        this::moltenBrand),
+                // Ungated: the floor is lava and he is not hiding behind anything. Pure survival race.
                 new BossPhase("Hellfire Awakens", 0.40,
                         List.of(lavaWave, meteorRain, eruption, magmaThrow, moltenOverload, searingBrand),
-                        false, InfernoWarlord::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Cinder Hearts", NamedTextColor.RED),
-                                Material.BLAZE_ROD, EMBER, 2, false)),
+                        false, InfernoWarlord::onEnterPhase3),
+                // The forge runs hotter the longer he is allowed to live. First boss on the roster whose
+                // failure state feeds him rather than only hurting you (design rule 4).
                 new BossPhase("Infernal Cataclysm", 0.15,
                         List.of(flameBreath, meteorRain, eruption, cinderNova, magmaThrow, firestorm, moltenOverload),
                         true, InfernoWarlord::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Heart of the Inferno", NamedTextColor.DARK_RED),
-                                Material.NETHER_STAR, DEEP_FIRE, 3, true)));
+                        this::risingForge));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new CinderCleaver(plugin).createItem())
@@ -121,6 +130,69 @@ public final class InfernoWarlord extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Moat Eruption: the moat throws a wall of fire outward on a clock, torn by a few gaps that drift
+     * as the wave travels. Each successive wave has one fewer gap, down to a floor that always leaves
+     * a way out — escalation without an unsolvable state.
+     */
+    private PhaseMechanic moatEruption(BossInstance instance) {
+        return new ExpandingRingMechanic(instance, "Moat Eruption", EMBER,
+                configInt("moat-wave-interval-ticks", 150),
+                configDouble("moat-wave-speed", 0.42),
+                configDouble("moat-band-thickness", 2.6),
+                configInt("moat-starting-gaps", 4),
+                configInt("moat-minimum-gaps", 2),
+                configDouble("moat-gap-half-width-degrees", 20.0),
+                configDouble("moat-gap-drift-degrees-per-second", 14.0),
+                configDouble("moat-wave-damage", 13.0),
+                configInt("moat-burn-ticks", 40));
+    }
+
+    /**
+     * Molten Brand: proximity to him brands you, and the brand only cools at range. When it maxes out
+     * it goes off on the carrier and everyone stacked with them — so a melee group has to rotate out
+     * and back rather than parking in his lap for the whole band.
+     */
+    private PhaseMechanic moltenBrand(BossInstance instance) {
+        MechanicField coolAir = MechanicField.beyondBoss(configDouble("molten-brand-cool-distance", 11.0));
+        return new StackMeterMechanic(instance, "Molten Brand", DEEP_FIRE, coolAir,
+                configDouble("molten-brand-gain-per-second", 8.0),
+                configDouble("molten-brand-vent-per-second", 16.0),
+                configDouble("molten-brand-cap", 100.0),
+                StackMeterMechanic.selfDetonate(
+                        configDouble("molten-brand-blast-radius", 5.0),
+                        configDouble("molten-brand-centre-damage", 18.0),
+                        configDouble("molten-brand-splash-damage", 9.0)),
+                Component.text("MOLTEN BRAND", NamedTextColor.GOLD).decoration(TextDecoration.BOLD, true),
+                Component.text("His heat marks you — back off to vent it", NamedTextColor.GRAY),
+                "cooling", "BRANDED — get away from him");
+    }
+
+    /**
+     * The Rising Forge: his last stand runs on a clock the group can only hold back with sustained
+     * damage. Let it top out and he permanently grows, speeds up and hardens — the first boss on the
+     * roster where ignoring a mechanic compounds instead of merely hurting.
+     */
+    private PhaseMechanic risingForge(BossInstance instance) {
+        return new EscalatingDoomMechanic(instance, "The Forge Rises", DEEP_FIRE,
+                configDouble("forge-fill-per-second", 4.0),
+                configDouble("forge-damage-per-point", 5.0),
+                configDouble("forge-cap", 100.0),
+                configDouble("forge-scale-step", 1.08),
+                configDouble("forge-speed-step", 1.06),
+                configDouble("forge-harden-step", 0.06),
+                configDouble("forge-overflow-damage", 12.0));
+    }
+
+    /** Offset from his phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new HitCountShieldEvent(plugin, id(), new double[] {0.88, 0.34}),
+                new PullNukeEvent(plugin, id(), new double[] {0.58, 0.22},
+                        "WARLORD'S CRUCIBLE", "He is dragging you into the forge — break away"));
     }
 
     @Override

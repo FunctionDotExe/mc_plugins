@@ -82,7 +82,7 @@ public final class PandemicSurgeAttack extends BossAttack {
                     double radius = ctx.arena().radius();
 
                     Set<UUID> infected = new HashSet<>();
-                    for (Player player : Arena.playersNear(bossLoc, radius)) {
+                    for (Player player : Arena.combatants(bossLoc, radius)) {
                         player.addPotionEffect(new PotionEffect(PotionEffectType.POISON, poisonTicks, 1));
                         infected.add(player.getUniqueId());
                     }
@@ -117,7 +117,7 @@ public final class PandemicSurgeAttack extends BossAttack {
     }
 
     private void onBlossomBroken(Location bossLoc, double radius, Set<UUID> infected) {
-        for (Player player : Arena.playersNear(bossLoc, radius)) {
+        for (Player player : Arena.combatants(bossLoc, radius)) {
             if (infected.remove(player.getUniqueId())) {
                 player.removePotionEffect(PotionEffectType.POISON);
                 Fx.coloredBurst(player.getLocation().add(0, 1, 0), Color.fromRGB(150, 220, 150), 1.2f, 20, 0.4);

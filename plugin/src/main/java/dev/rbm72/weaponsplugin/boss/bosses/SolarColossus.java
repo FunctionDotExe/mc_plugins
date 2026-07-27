@@ -4,9 +4,17 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
+import dev.rbm72.weaponsplugin.boss.events.LineOfSightEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.DriftingDiscField;
+import dev.rbm72.weaponsplugin.boss.mechanics.MechanicField;
+import dev.rbm72.weaponsplugin.boss.mechanics.OrderedTargetsMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.StackMeterMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.TelegraphedEruptionMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.FistThrowAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.HealingAddsAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.MeteorAttack;
@@ -70,26 +78,28 @@ public final class SolarColossus extends Boss {
                 EntityType.BLAZE, SOLAR_GOLD);
 
         this.phases = List.of(
-                new BossPhase("Phase 1", 1.0,
+                // Golem's Judgment: its fists crack the ground under whoever is standing on it, and the
+                // crack grabs anyone slow to move. The opener that teaches you not to camp its feet.
+                new BossPhase("Golem's Judgment", 1.0,
                         List.of(solarBeam, seismicSlam, fistThrow, radiantNova),
                         false, SolarColossus::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Solar Conduits", NamedTextColor.GOLD),
-                                Material.GLOWSTONE, SOLAR_GOLD, 0, false)),
-                new BossPhase("Sunforged", 0.75,
+                        this::golemsJudgment),
+                // At zenith the light burns everywhere except the drifting patches of shade it casts
+                // with its own body. Nothing is gated — the sun simply never stops, so neither can you.
+                new BossPhase("Zenith", 0.75,
                         List.of(meteor, solarFlare, solarBeam, seismicSlam, sunAcolytes),
                         false, SolarColossus::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Solar Conduits", NamedTextColor.GOLD),
-                                Material.GLOWSTONE, SOLAR_GOLD, 1, false)),
-                new BossPhase("Zenith", 0.40,
+                        this::zenith),
+                // Idol Sequence: its signature, and the roster's only mechanic where the wrong swing is
+                // worse than no swing. Hold fire, read the light, hit them in order.
+                new BossPhase("The Sun Idols", 0.40,
                         List.of(sunfireRain, radiantBeamCross, seismicSlam, fistThrow, blindingRadiance),
                         false, SolarColossus::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Radiant Cores", NamedTextColor.YELLOW),
-                                Material.BEACON, RADIANT_WHITE, 2, false)),
+                        this::idolSequence),
+                // Ungated: the core is going critical and there is nothing to do but out-damage it.
                 new BossPhase("Supernova Imminent", 0.15,
                         List.of(solarBeam, seismicSlam, fistThrow, meteor, radiantNova, supernova, blindingRadiance),
-                        true, SolarColossus::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Fractured Core", NamedTextColor.RED),
-                                Material.NETHER_STAR, RADIANT_WHITE, 3, true)));
+                        true, SolarColossus::onEnterEnrage));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Dawnbreaker(plugin).createItem())
@@ -134,6 +144,75 @@ public final class SolarColossus extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Golem's Judgment: its slams crack the ground beneath whoever is standing still, with a telegraph
+     * long enough that footwork always beats it. Damage is modest — the root is what actually costs
+     * you, since the rest of its kit keeps firing while you are held.
+     */
+    private PhaseMechanic golemsJudgment(BossInstance instance) {
+        return new TelegraphedEruptionMechanic(instance, "Golem's Judgment", SOLAR_GOLD,
+                Particle.LAVA, Sound.BLOCK_STONE_HIT, Sound.ENTITY_IRON_GOLEM_ATTACK,
+                configInt("judgment-volley-interval-ticks", 80),
+                configInt("judgment-telegraph-ticks", 36),
+                configDouble("judgment-radius", 3.0),
+                configDouble("judgment-damage", 12.0),
+                configInt("judgment-snare-ticks", 40),
+                configInt("judgment-marks-per-volley", 3));
+    }
+
+    /**
+     * Zenith: sunburn climbs on everyone standing in open light and only falls while they are inside
+     * one of the drifting patches of shade. A positional meter rather than a gate — it is hittable
+     * throughout, the sun simply never stops.
+     */
+    private PhaseMechanic zenith(BossInstance instance) {
+        MechanicField shade = new DriftingDiscField(
+                configInt("zenith-shade-patches", 2),
+                configDouble("zenith-shade-radius", 5.0),
+                configDouble("zenith-shade-drift", 2.6),
+                Color.fromRGB(70, 60, 120),
+                configDouble("zenith-shade-spread", 0.5));
+        return new StackMeterMechanic(instance, "Sunburn", RADIANT_WHITE, shade,
+                configDouble("zenith-gain-per-second", 8.0),
+                configDouble("zenith-drain-per-second", 20.0),
+                configDouble("zenith-cap", 100.0),
+                StackMeterMechanic.crippling(
+                        configDouble("zenith-damage", 18.0),
+                        configInt("zenith-blind-ticks", 60), 2),
+                Component.text("ZENITH", NamedTextColor.YELLOW).decoration(TextDecoration.BOLD, true),
+                Component.text("Live in the shade — it moves with the colossus", NamedTextColor.GRAY),
+                "in shade", "BURNING — find the shade");
+    }
+
+    /**
+     * Idol Sequence: four idols, one correct order, cued by light and chime. Striking out of turn
+     * costs the whole group health and throws the sequence away, and letting the clock run out sets
+     * off the flare. It is blunted rather than immune while the ritual stands, so it can never lock.
+     */
+    private PhaseMechanic idolSequence(BossInstance instance) {
+        return new OrderedTargetsMechanic(instance, "Idol Sequence", "Sun Idol", SOLAR_GOLD,
+                Material.GLOWSTONE,
+                configInt("idol-count", 4),
+                configDouble("idol-health", 30.0),
+                configInt("idol-window-ticks", 320),
+                configInt("idol-restart-delay-ticks", 120),
+                configDouble("idol-wrong-order-damage", 10.0),
+                configDouble("idol-flare-damage", 26.0),
+                configDouble("idol-exposed-multiplier", 2.2),
+                configInt("idol-exposed-ticks", 170),
+                configInt("idol-stagger-ticks", 60),
+                configDouble("idol-placement-fraction", 0.6));
+    }
+
+    /** Offset from its phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new HitCountShieldEvent(plugin, id(), new double[] {0.88, 0.34}),
+                new LineOfSightEvent(plugin, id(), new double[] {0.62, 0.26},
+                        "SOLAR FLARE", "Break line of sight — put stone between you and it"));
     }
 
     @Override

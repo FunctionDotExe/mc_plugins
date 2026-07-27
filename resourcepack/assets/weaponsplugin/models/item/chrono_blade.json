@@ -1,6 +1,42 @@
 {
-  "parent": "minecraft:item/handheld",
+  "parent": "weaponsplugin:item/_template_handheld_large",
   "textures": {
     "layer0": "weaponsplugin:item/chrono_blade"
+  },
+  "display": {
+    "thirdperson_righthand": {
+      "rotation": [
+        0,
+        90,
+        -55
+      ],
+      "translation": [
+        0,
+        3,
+        0.5
+      ],
+      "scale": [
+        -2.0,
+        2.0,
+        2.0
+      ]
+    },
+    "thirdperson_lefthand": {
+      "rotation": [
+        0,
+        90,
+        -55
+      ],
+      "translation": [
+        0,
+        3,
+        0.5
+      ],
+      "scale": [
+        2.0,
+        2.0,
+        2.0
+      ]
+    }
   }
 }

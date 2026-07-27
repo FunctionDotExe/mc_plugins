@@ -42,14 +42,112 @@ public final class Fx {
      * routes through this class gets bigger, denser effects without touching 100+ call sites.
      * COUNT/DENSITY multiplies how many particles spawn per call; SPREAD widens the volume they
      * fill; SIZE enlarges dust-particle scale so colored bursts read clearly at max particle count.
+     * <p>
+     * Lowered from the original 3.0/1.8 (COUNT/DENSITY) after players reported boss fights reading
+     * as a wall of particles rather than readable attacks — see {@link #runtimeScale()} for the
+     * additional, server-adjustable knob on top of this baseline.
      */
-    private static final double COUNT_MULTIPLIER = 3.0;
+    private static final double COUNT_MULTIPLIER = 2.0;
     private static final double SPREAD_MULTIPLIER = 1.6;
     private static final double SIZE_MULTIPLIER = 1.6;
-    private static final double DENSITY_MULTIPLIER = 1.8;
+    private static final double DENSITY_MULTIPLIER = 1.3;
+
+    /** Particles spawned more than this far from a viewer aren't sent to them at all. */
+    private static final double VIEWER_RADIUS = 64.0;
+    private static final double VIEWER_RADIUS_SQUARED = VIEWER_RADIUS * VIEWER_RADIUS;
+
+    private static final StackWalker CALLER_WALKER = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
+    private static final String FX_PACKAGE = Fx.class.getPackageName();
+    private static final String BOSS_PACKAGE_PREFIX = "dev.rbm72.weaponsplugin.boss";
+
+    /** Which personal slider in {@link PlayerParticlePrefs} a given effect should be scaled by. */
+    enum ParticleCategory {
+        WEAPON, BOSS
+    }
+
+    private static Plugin ownerPlugin;
+
+    /** Called once from the plugin's onEnable so {@link #runtimeScale()} can read live config. */
+    public static void init(Plugin plugin) {
+        ownerPlugin = plugin;
+    }
+
+    /**
+     * Classifies the real external call site that triggered the current particle effect as
+     * weapon- or boss-side by package, so the right personal slider applies. Walks past any frames
+     * still inside this class (helper methods calling each other) to find that caller — every
+     * boss file lives under {@code boss.*}, everything else (weapons, accessories, armor, stones,
+     * consumables) is weapon-side.
+     */
+    private static ParticleCategory currentCategory() {
+        Class<?> caller = CALLER_WALKER.walk(frames -> frames
+                        .map(StackWalker.StackFrame::getDeclaringClass)
+                        .filter(c -> !c.getPackageName().equals(FX_PACKAGE))
+                        .findFirst())
+                .orElse(null);
+        return caller != null && caller.getPackageName().startsWith(BOSS_PACKAGE_PREFIX)
+                ? ParticleCategory.BOSS : ParticleCategory.WEAPON;
+    }
+
+    /**
+     * The single choke point every particle spawn in this class routes through. Instead of
+     * broadcasting one packet count to every nearby client via {@code World#spawnParticle},
+     * this sends an individually-scaled packet to each viewer within {@link #VIEWER_RADIUS},
+     * so {@code /particles weapon} / {@code /particles boss} can turn a player's own view of
+     * an effect up or down without touching what anyone else sees.
+     */
+    private static void spawnScaled(World world, double x, double y, double z, Particle particle,
+                                     int preScaledCount, double offsetX, double offsetY, double offsetZ,
+                                     double extra, Object data, ParticleCategory category) {
+        if (preScaledCount <= 0) {
+            return;
+        }
+        for (Player viewer : world.getPlayers()) {
+            Location viewerLoc = viewer.getLocation();
+            double dx = viewerLoc.getX() - x;
+            double dy = viewerLoc.getY() - y;
+            double dz = viewerLoc.getZ() - z;
+            if (dx * dx + dy * dy + dz * dz > VIEWER_RADIUS_SQUARED) {
+                continue;
+            }
+            int count = (int) Math.ceil(preScaledCount * PlayerParticlePrefs.multiplier(viewer, category));
+            if (count <= 0) {
+                continue;
+            }
+            if (data == null) {
+                viewer.spawnParticle(particle, x, y, z, count, offsetX, offsetY, offsetZ, extra);
+            } else {
+                viewer.spawnParticle(particle, x, y, z, count, offsetX, offsetY, offsetZ, extra, data);
+            }
+        }
+    }
+
+    private static void spawnScaled(Location loc, Particle particle, int preScaledCount,
+                                     double offsetX, double offsetY, double offsetZ, double extra,
+                                     Object data, ParticleCategory category) {
+        World world = loc.getWorld();
+        if (world == null) {
+            return;
+        }
+        spawnScaled(world, loc.getX(), loc.getY(), loc.getZ(), particle, preScaledCount,
+                offsetX, offsetY, offsetZ, extra, data, category);
+    }
+
+    /**
+     * Extra multiplier on top of the constants above, read live off {@code fx.particle-scale} in
+     * config.yml (default 1.0) so a server can turn boss particle volume up or down — including via
+     * {@code /bossparticles} — without a restart or recompile. Read live rather than cached so
+     * {@code /bossreload} picks it up the same way every other tuned number in this plugin does.
+     */
+    public static double runtimeScale() {
+        if (ownerPlugin == null) {
+            return 1.0;
+        }
+        return Math.max(0.1, Math.min(2.0, ownerPlugin.getConfig().getDouble("fx.particle-scale", 1.0)));
+    }
 
     private static int scaleCount(int count) {
-        return (int) Math.ceil(count * COUNT_MULTIPLIER);
+        return (int) Math.ceil(count * COUNT_MULTIPLIER * runtimeScale());
     }
 
     private static double scaleSpread(double spread) {
@@ -57,7 +155,7 @@ public final class Fx {
     }
 
     private static int scaleDensity(int points) {
-        return (int) Math.ceil(points * DENSITY_MULTIPLIER);
+        return (int) Math.ceil(points * DENSITY_MULTIPLIER * runtimeScale());
     }
 
     /** Clamped to Bukkit's hard {@code DustOptions} size range [0.01, 4.0] — exceeding it throws. */
@@ -66,29 +164,17 @@ public final class Fx {
     }
 
     public static void trail(Location loc, Particle particle, int count, double spread, double speed) {
-        World world = loc.getWorld();
-        if (world == null) {
-            return;
-        }
         double scaledSpread = scaleSpread(spread);
-        world.spawnParticle(particle, loc, scaleCount(count), scaledSpread, scaledSpread, scaledSpread, speed);
+        spawnScaled(loc, particle, scaleCount(count), scaledSpread, scaledSpread, scaledSpread, speed, null, currentCategory());
     }
 
     public static void burst(Location loc, Particle particle, int count, double spread) {
-        World world = loc.getWorld();
-        if (world == null) {
-            return;
-        }
         double scaledSpread = scaleSpread(spread);
-        world.spawnParticle(particle, loc, scaleCount(count), scaledSpread, scaledSpread, scaledSpread, 0.05);
+        spawnScaled(loc, particle, scaleCount(count), scaledSpread, scaledSpread, scaledSpread, 0.05, null, currentCategory());
     }
 
     public static void point(Location loc, Particle particle, int count) {
-        World world = loc.getWorld();
-        if (world == null) {
-            return;
-        }
-        world.spawnParticle(particle, loc, scaleCount(count), 0, 0, 0, 0);
+        spawnScaled(loc, particle, scaleCount(count), 0, 0, 0, 0, null, currentCategory());
     }
 
     /**
@@ -98,12 +184,9 @@ public final class Fx {
      * only safe way to spawn it.
      */
     public static void blockBurst(Location loc, Material material, int count, double spread) {
-        World world = loc.getWorld();
-        if (world == null) {
-            return;
-        }
         double scaledSpread = scaleSpread(spread);
-        world.spawnParticle(Particle.BLOCK, loc, scaleCount(count), scaledSpread, scaledSpread, scaledSpread, 0.1, material.createBlockData());
+        spawnScaled(loc, Particle.BLOCK, scaleCount(count), scaledSpread, scaledSpread, scaledSpread, 0.1,
+                material.createBlockData(), currentCategory());
     }
 
     /**
@@ -113,11 +196,7 @@ public final class Fx {
      * no data throws at the server level every time. This is the only safe way to spawn it.
      */
     public static void flash(Location loc, int count) {
-        World world = loc.getWorld();
-        if (world == null) {
-            return;
-        }
-        world.spawnParticle(Particle.FLASH, loc, count, 0, 0, 0, 0, Color.WHITE);
+        spawnScaled(loc, Particle.FLASH, count, 0, 0, 0, 0, Color.WHITE, currentCategory());
     }
 
     /**
@@ -126,12 +205,9 @@ public final class Fx {
      * with no data throws at the server level every time. This is the only safe way to spawn it.
      */
     public static void dragonBreathBurst(Location loc, int count, double spread) {
-        World world = loc.getWorld();
-        if (world == null) {
-            return;
-        }
         double scaledSpread = scaleSpread(spread);
-        world.spawnParticle(Particle.DRAGON_BREATH, loc, scaleCount(count), scaledSpread, scaledSpread, scaledSpread, 0.05, 1.0f);
+        spawnScaled(loc, Particle.DRAGON_BREATH, scaleCount(count), scaledSpread, scaledSpread, scaledSpread, 0.05,
+                1.0f, currentCategory());
     }
 
     /** Same data requirement as {@link #dragonBreathBurst}, laid out along a line instead of a burst. */
@@ -140,12 +216,13 @@ public final class Fx {
         if (world == null) {
             return;
         }
+        ParticleCategory category = currentCategory();
         Vector step = to.toVector().subtract(from.toVector());
         int scaledPoints = scaleDensity(points);
         for (int i = 0; i <= scaledPoints; i++) {
             double t = (double) i / scaledPoints;
             Location point = from.clone().add(step.clone().multiply(t));
-            world.spawnParticle(Particle.DRAGON_BREATH, point, 1, 0, 0, 0, 0, 1.0f);
+            spawnScaled(point, Particle.DRAGON_BREATH, 1, 0, 0, 0, 0, 1.0f, category);
         }
     }
 
@@ -160,6 +237,11 @@ public final class Fx {
      * accumulate an angle each tick and pass it here to turn a static circle into a spinning one.
      */
     public static void ring(Location center, Particle particle, double radius, int points, double angleOffsetRadians) {
+        ringInternal(center, particle, radius, points, angleOffsetRadians, currentCategory());
+    }
+
+    private static void ringInternal(Location center, Particle particle, double radius, int points,
+                                      double angleOffsetRadians, ParticleCategory category) {
         World world = center.getWorld();
         if (world == null) {
             return;
@@ -169,7 +251,7 @@ public final class Fx {
             double angle = angleOffsetRadians + (2 * Math.PI * i) / scaledPoints;
             double x = center.getX() + radius * Math.cos(angle);
             double z = center.getZ() + radius * Math.sin(angle);
-            world.spawnParticle(particle, x, center.getY(), z, 1, 0, 0, 0, 0);
+            spawnScaled(world, x, center.getY(), z, particle, 1, 0, 0, 0, 0, null, category);
         }
     }
 
@@ -185,17 +267,24 @@ public final class Fx {
         if (world == null) {
             return;
         }
+        ParticleCategory category = currentCategory();
         int scaledStrands = scaleDensity(strands);
         for (int i = 0; i < scaledStrands; i++) {
             double angle = angleOffsetRadians + (2 * Math.PI * i) / scaledStrands;
             double x = base.getX() + radius * Math.cos(angle);
             double z = base.getZ() + radius * Math.sin(angle);
-            world.spawnParticle(particle, x, base.getY() + height, z, 1, 0, 0, 0, 0);
+            spawnScaled(world, x, base.getY() + height, z, particle, 1, 0, 0, 0, 0, null, category);
         }
     }
 
-    /** Several rings growing outward over a few ticks — used for slams/shockwaves. */
+    /**
+     * Several rings growing outward over a few ticks — used for slams/shockwaves. The category is
+     * resolved once up front (from the real caller, synchronously) and captured for every tick of
+     * the runnable, since by the time it fires later the call stack no longer has anything to do
+     * with the code that originally scheduled it.
+     */
     public static void expandingRings(Plugin plugin, Location center, Particle particle, double maxRadius, int rings, long tickInterval) {
+        ParticleCategory category = currentCategory();
         new BukkitRunnable() {
             int ring = 0;
 
@@ -206,7 +295,7 @@ public final class Fx {
                     return;
                 }
                 double radius = maxRadius * (ring + 1) / (double) rings;
-                ring(center, particle, radius, 20 + ring * 6);
+                ringInternal(center, particle, radius, 20 + ring * 6, 0, category);
                 ring++;
             }
         }.runTaskTimer(plugin, 0L, tickInterval);
@@ -214,23 +303,15 @@ public final class Fx {
 
     /** Dark-red dust burst used as shared "impact" feedback on every weapon hit. */
     public static void bloodSpray(Location loc) {
-        World world = loc.getWorld();
-        if (world == null) {
-            return;
-        }
         Particle.DustOptions blood = new Particle.DustOptions(Color.fromRGB(138, 3, 3), scaleSize(1.3f));
-        world.spawnParticle(Particle.DUST, loc, scaleCount(10), 0.25, 0.25, 0.25, 0, blood);
+        spawnScaled(loc, Particle.DUST, scaleCount(10), 0.25, 0.25, 0.25, 0, blood, currentCategory());
     }
 
     /** A custom-colored dust burst — gives a weapon's signature ability its own identity instead of a generic particle. */
     public static void coloredBurst(Location loc, Color color, float dustSize, int count, double spread) {
-        World world = loc.getWorld();
-        if (world == null) {
-            return;
-        }
         Particle.DustOptions dust = new Particle.DustOptions(color, scaleSize(dustSize));
         double scaledSpread = scaleSpread(spread);
-        world.spawnParticle(Particle.DUST, loc, scaleCount(count), scaledSpread, scaledSpread, scaledSpread, 0, dust);
+        spawnScaled(loc, Particle.DUST, scaleCount(count), scaledSpread, scaledSpread, scaledSpread, 0, dust, currentCategory());
     }
 
     /** Same as {@link #ring} but every point is a custom-colored dust particle instead of a fixed type. */
@@ -239,13 +320,14 @@ public final class Fx {
         if (world == null) {
             return;
         }
+        ParticleCategory category = currentCategory();
         Particle.DustOptions dust = new Particle.DustOptions(color, scaleSize(dustSize));
         int scaledPoints = scaleDensity(points);
         for (int i = 0; i < scaledPoints; i++) {
             double angle = angleOffsetRadians + (2 * Math.PI * i) / scaledPoints;
             double x = center.getX() + radius * Math.cos(angle);
             double z = center.getZ() + radius * Math.sin(angle);
-            world.spawnParticle(Particle.DUST, x, center.getY(), z, 1, 0, 0, 0, 0, dust);
+            spawnScaled(world, x, center.getY(), z, Particle.DUST, 1, 0, 0, 0, 0, dust, category);
         }
     }
 
@@ -255,12 +337,13 @@ public final class Fx {
         if (world == null) {
             return;
         }
+        ParticleCategory category = currentCategory();
         Vector step = to.toVector().subtract(from.toVector());
         int scaledPoints = scaleDensity(points);
         for (int i = 0; i <= scaledPoints; i++) {
             double t = (double) i / scaledPoints;
             Location point = from.clone().add(step.clone().multiply(t));
-            world.spawnParticle(particle, point, 1, 0, 0, 0, 0);
+            spawnScaled(point, particle, 1, 0, 0, 0, 0, null, category);
         }
     }
 

@@ -144,7 +144,7 @@ public final class SkyboundAssaultAttack extends BossAttack {
                         }
 
                         private void dive() {
-                            List<Player> nearby = Arena.playersNear(anchor, radius);
+                            List<Player> nearby = Arena.combatants(anchor, radius);
                             Location landing = nearby.isEmpty()
                                     ? anchor.clone()
                                     : nearby.get(ThreadLocalRandom.current().nextInt(nearby.size())).getLocation().clone();
@@ -159,7 +159,7 @@ public final class SkyboundAssaultAttack extends BossAttack {
                             ctx.instance().entity().setGlowing(true);
 
                             double rSq = diveRadius * diveRadius;
-                            for (Player player : Arena.playersNear(landing, diveRadius + 1)) {
+                            for (Player player : Arena.combatants(landing, diveRadius + 1)) {
                                 if (player.getLocation().distanceSquared(landing) <= rSq) {
                                     player.damage(diveDamage, ctx.boss());
                                     Fx.coloredBurst(player.getLocation().add(0, 1, 0), WYRM_GOLD, 1.4f, 20, 0.4);

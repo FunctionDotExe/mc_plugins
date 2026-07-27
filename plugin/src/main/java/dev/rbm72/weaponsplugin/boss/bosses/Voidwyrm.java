@@ -4,9 +4,15 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.CollapsingOrbEvent;
+import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.FalseGroundMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.ForceFieldMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.RotatingCorridorMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.MeteorCallAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.StarfallNovaAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.VoidBreathAttack;
@@ -55,26 +61,29 @@ public final class Voidwyrm extends Boss {
         StarfallNovaAttack starfallNova = new StarfallNovaAttack(plugin);
 
         this.phases = List.of(
+                // False Ground: its signature. Parts of the floor are illusion, faintly marked the
+                // whole time and obvious only in the second before they go. It rewards looking at the
+                // arena early rather than reacting fast late — which nothing else in the roster does.
                 new BossPhase("The Wyrmling", 1.0,
                         List.of(voidBreath, wyrmDive),
                         false, Voidwyrm::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Newborn Scales", NamedTextColor.LIGHT_PURPLE),
-                                Material.END_STONE, VOID_PURPLE, 0, false)),
+                        this::falseGround),
+                // Ungated: no mechanic, just a growing wyrm and its whole kit. Pure race.
                 new BossPhase("The Growing Wyrm", 0.75,
                         List.of(voidBreath, wyrmDive, meteorCall),
-                        false, Voidwyrm::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Hardened Hide", NamedTextColor.LIGHT_PURPLE),
-                                Material.OBSIDIAN, VOID_PURPLE, 1, false)),
+                        false, Voidwyrm::onEnterPhase2),
+                // Void Breath Corridor: the breath covers everything except one rotating lane, so the
+                // whole phase is fought orbiting it at exactly the speed the lane turns.
                 new BossPhase("The Elder Wyrm", 0.40,
                         List.of(voidBreath, wyrmDive, meteorCall),
                         false, Voidwyrm::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Ancient Carapace", NamedTextColor.LIGHT_PURPLE),
-                                Material.CRYING_OBSIDIAN, VOID_PURPLE, 2, false)),
+                        this::voidBreathCorridor),
+                // Its coronation opens the void under the arena: a permanent inward drag with a lethal
+                // core, so its last stand is fought while constantly losing ground.
                 new BossPhase("Full Coronation", 0.15,
                         List.of(voidBreath, wyrmDive, meteorCall, starfallNova),
                         true, Voidwyrm::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Heart of the Void", NamedTextColor.RED),
-                                Material.NETHER_STAR, Color.fromRGB(180, 20, 20), 3, true)));
+                        this::theOpenVoid));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Starfang(plugin).createItem())
@@ -102,7 +111,7 @@ public final class Voidwyrm extends Boss {
 
     @Override
     public double arenaRadius() {
-        return configDouble("arena-radius", 28.0);
+        return configDouble("arena-radius", 50.0);
     }
 
     @Override
@@ -113,6 +122,57 @@ public final class Voidwyrm extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * False Ground: its signature. A few patches of floor are illusion, shimmering faintly the whole
+     * time and only obvious in the second before they drop. Patches re-roll after every collapse, so
+     * the map cannot be memorised — and one cheap fall teaches the tell for good.
+     */
+    private PhaseMechanic falseGround(BossInstance instance) {
+        return new FalseGroundMechanic(instance, "False Ground", STARLIGHT,
+                configInt("false-ground-patches", 4),
+                configDouble("false-ground-radius", 3.4),
+                configInt("false-ground-cycle-ticks", 240),
+                configInt("false-ground-reveal-ticks", 50),
+                configDouble("false-ground-plunge-damage", 16.0),
+                configInt("false-ground-disorient-ticks", 70),
+                configDouble("false-ground-placement-fraction", 0.75));
+    }
+
+    /**
+     * Void Breath Corridor: everything except one rotating lane is inside the breath, and the lane
+     * reverses without warning. The only mechanic in the roster where safety is an angle rather than
+     * a place, so the group orbits continuously instead of running to somewhere.
+     */
+    private PhaseMechanic voidBreathCorridor(BossInstance instance) {
+        return new RotatingCorridorMechanic(instance, "Void Breath", STARLIGHT, VOID_PURPLE,
+                configDouble("corridor-half-width-degrees", 42.0),
+                configDouble("corridor-degrees-per-second", 26.0),
+                configDouble("corridor-inner-radius", 3.5),
+                configDouble("corridor-damage-per-second", 8.0),
+                configInt("corridor-reverse-interval-ticks", 260));
+    }
+
+    /**
+     * The Open Void: a permanent inward drag with a lethal core at the middle. Nothing is blocked —
+     * it simply costs ground continuously, which sharpens every telegraph the wyrm still has.
+     */
+    private PhaseMechanic theOpenVoid(BossInstance instance) {
+        return new ForceFieldMechanic(instance, "The Open Void", VOID_PURPLE,
+                ForceFieldMechanic.Direction.INWARD, ForceFieldMechanic.Focus.ARENA_CENTRE,
+                configDouble("open-void-pull-per-tick", 0.06),
+                configDouble("open-void-core-radius", 5.0),
+                configDouble("open-void-core-damage-per-second", 10.0),
+                null);
+    }
+
+    /** Offset from its phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new HitCountShieldEvent(plugin, id(), new double[] {0.88, 0.32}),
+                new CollapsingOrbEvent(plugin, id(), new double[] {0.62, 0.26}));
     }
 
     @Override

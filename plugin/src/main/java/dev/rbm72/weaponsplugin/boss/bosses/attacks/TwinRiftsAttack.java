@@ -113,7 +113,7 @@ public final class TwinRiftsAttack extends BossAttack {
                         private void resolve() {
                             ctx.instance().setForcedInvulnerable(false);
                             Location loc = ctx.bossLocation();
-                            var players = Arena.playersNear(loc, radius);
+                            var players = Arena.combatants(loc, radius);
                             boolean anyCaughtNearDeadly = players.stream()
                                     .anyMatch(p -> p.getLocation().distanceSquared(deadlyRift) <= riftRadius * riftRadius);
                             for (Player player : players) {

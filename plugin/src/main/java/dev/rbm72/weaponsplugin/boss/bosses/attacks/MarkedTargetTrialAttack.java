@@ -8,6 +8,7 @@ import dev.rbm72.weaponsplugin.boss.BossAudio;
 import dev.rbm72.weaponsplugin.boss.grief.Grief;
 import dev.rbm72.weaponsplugin.boss.props.ArenaTotem;
 import dev.rbm72.weaponsplugin.fx.Fx;
+import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -62,7 +63,7 @@ public final class MarkedTargetTrialAttack extends BossAttack {
         // Anchored to the boss's current position, not the arena's fixed spawn-time center — a
         // chased/knocked-back fight routinely drifts away from where it started, and the stale
         // check would silently exclude everyone actually still in the fight.
-        List<Player> candidates = Arena.playersNear(ctx.bossLocation(), ctx.arena().radius());
+        List<Player> candidates = Arena.combatants(ctx.bossLocation(), ctx.arena().radius());
         if (candidates.isEmpty()) {
             // Nobody to mark this cast — a short, quiet cycle rather than forcing a fizzled telegraph.
             sequence(telegraphTicks, () -> { }, () -> { }, 5, onComplete);
@@ -77,7 +78,9 @@ public final class MarkedTargetTrialAttack extends BossAttack {
                         return;
                     }
                     ctx.instance().setForcedInvulnerable(true);
-                    marked.sendActionBar(Component.text("You've been marked — kill it before it feeds!", NamedTextColor.RED));
+                    ctx.plugin().actionBarHub().flash(marked,
+                            Component.text("You've been marked — kill it before it feeds!", NamedTextColor.RED),
+                            3000, ActionBarHub.PRIORITY_NOTICE);
                     BossAudio.play(marked.getLocation(), "boss.marked_target_trial", Sound.ENTITY_VEX_CHARGE, 1.0f, 1.0f);
 
                     // Aiming straight up/down zeroes the horizontal component — can't normalize that

@@ -23,6 +23,7 @@ import java.util.concurrent.ThreadLocalRandom;
 public final class WorldenderFinaleAttack extends BossAttack {
 
     private static final Color UNMAKING = Color.fromRGB(200, 40, 90);
+    private static final int AMBIENT_INTERVAL_TICKS = 6;
 
     private final double auraDamage;
     private final double meteorDamage;
@@ -100,11 +101,13 @@ public final class WorldenderFinaleAttack extends BossAttack {
             }
 
             private void runWave() {
-                // Rolling ash/ember cloud over the whole footprint every tick.
-                world.spawnParticle(Particle.LARGE_SMOKE, center.clone().add(0, 4, 0),
-                        150, arenaRadius * 1.28, 4.8, arenaRadius * 1.28, 0.02);
-                world.spawnParticle(Particle.SOUL_FIRE_FLAME, center.clone().add(0, 1, 0),
-                        60, arenaRadius * 1.12, 2.4, arenaRadius * 1.12, 0.01);
+                // Ash/ember cloud over the whole footprint — every AMBIENT_INTERVAL ticks rather than
+                // every single tick (was 210 raw particles/tick for the whole 6s duration, bypassing
+                // Fx's scale entirely), and routed through Fx so /bossparticles actually affects it.
+                if (ticks % AMBIENT_INTERVAL_TICKS == 0) {
+                    Fx.burst(center.clone().add(0, 4, 0), Particle.LARGE_SMOKE, 40, arenaRadius * 0.6);
+                    Fx.burst(center.clone().add(0, 1, 0), Particle.SOUL_FIRE_FLAME, 16, arenaRadius * 0.5);
+                }
 
                 if (ticks % waveIntervalTicks == 0) {
                     // Damage aura to everyone still in the arena.

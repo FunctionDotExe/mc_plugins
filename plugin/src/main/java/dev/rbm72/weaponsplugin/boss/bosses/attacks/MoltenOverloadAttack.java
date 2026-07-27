@@ -122,7 +122,7 @@ public final class MoltenOverloadAttack extends BossAttack {
                             Fx.sound(loc, Sound.ENTITY_BLAZE_SHOOT, 1.0f, 0.7f);
                             double stokeDamage = pulseBaseDamage + ticks * 0.02;
                             double rSq = stokeRadius * stokeRadius;
-                            for (Player player : Arena.playersNear(loc, radius)) {
+                            for (Player player : Arena.combatants(loc, radius)) {
                                 if (player.getLocation().distanceSquared(loc) <= rSq) {
                                     player.damage(stokeDamage, ctx.boss());
                                     player.setFireTicks(Math.max(player.getFireTicks(), 40));

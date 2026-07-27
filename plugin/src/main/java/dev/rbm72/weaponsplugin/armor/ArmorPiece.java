@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.armor;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.util.TooltipFrame;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -25,6 +26,9 @@ import java.util.Locale;
 public abstract class ArmorPiece {
 
     private static final String ARMOR_ID_KEY = "armor_piece_id";
+
+    /** Max estimated pixel width for a wrapped tier-description line before it breaks to the next line. */
+    private static final int TOOLTIP_WRAP_WIDTH = 200;
 
     protected final WeaponsPlugin plugin;
     private final ArmorSet set;
@@ -58,12 +62,6 @@ public abstract class ArmorPiece {
                 .decoration(TextDecoration.ITALIC, false);
     }
 
-    /** Rarity-colored horizontal rule framing the tooltip's set-bonus block and footer. */
-    private Component borderLine() {
-        return Component.text("▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬", set.rarity().color())
-                .decoration(TextDecoration.ITALIC, false);
-    }
-
     public final ItemStack createItem() {
         ItemStack item = new ItemStack(material());
         ItemMeta meta = item.getItemMeta();
@@ -73,31 +71,36 @@ public abstract class ArmorPiece {
             leatherMeta.setColor(leatherColor());
         }
 
-        List<Component> lore = new ArrayList<>();
-        lore.add(Component.empty());
-        lore.add(borderLine());
+        List<Component> body = new ArrayList<>();
         for (Component line : set.description()) {
-            lore.add(line.decoration(TextDecoration.ITALIC, false));
+            body.add(line.decoration(TextDecoration.ITALIC, false));
         }
 
-        lore.add(Component.empty());
-        lore.add(Component.text("❈ Set Bonus — " + set.displayNameText(), NamedTextColor.GOLD)
+        body.add(Component.empty());
+        body.add(Component.text("❈ Set Bonus — " + set.displayNameText(), NamedTextColor.GOLD)
                 .decoration(TextDecoration.BOLD, true)
                 .decoration(TextDecoration.ITALIC, false));
         List<String> tiers = set.tierDescriptions();
         for (int i = 0; i < tiers.size(); i++) {
             int piecesWorn = i + 1;
-            lore.add(Component.text(" " + piecesWorn + " pc  ", NamedTextColor.DARK_GRAY)
-                    .decoration(TextDecoration.ITALIC, false)
-                    .append(Component.text(tiers.get(i), NamedTextColor.GRAY)));
+            String label = " " + piecesWorn + " pc  ";
+            String indent = " ".repeat(label.length());
+            List<String> wrapped = TooltipFrame.wrap(tiers.get(i), TOOLTIP_WRAP_WIDTH);
+            for (int w = 0; w < wrapped.size(); w++) {
+                body.add(Component.text(w == 0 ? label : indent, NamedTextColor.DARK_GRAY)
+                        .decoration(TextDecoration.ITALIC, false)
+                        .append(Component.text(wrapped.get(w), NamedTextColor.GRAY)));
+            }
         }
 
+        String footerLabel = set.rarity().label().toUpperCase(Locale.ROOT) + " ARMOR";
+        int frameWidth = Math.max(TooltipFrame.widestLine(body), TooltipFrame.footerWidth(footerLabel));
+
+        List<Component> lore = new ArrayList<>();
         lore.add(Component.empty());
-        lore.add(borderLine());
-        lore.add(Component.text("◆ " + set.rarity().label().toUpperCase(Locale.ROOT) + " ARMOR ◆", set.rarity().color())
-                .decoration(TextDecoration.BOLD, true)
-                .decoration(TextDecoration.ITALIC, false));
-        lore.add(borderLine());
+        lore.addAll(body);
+        lore.add(Component.empty());
+        lore.add(TooltipFrame.footer(footerLabel, set.rarity().color(), frameWidth));
         meta.lore(lore);
 
         meta.setUnbreakable(true);

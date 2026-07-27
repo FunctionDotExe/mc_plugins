@@ -62,6 +62,8 @@ public final class HubListener implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         plugin.accessoryManager().unload(event.getPlayer().getUniqueId());
+        plugin.stoneManager().unload(event.getPlayer().getUniqueId());
+        plugin.ridableManager().unload(event.getPlayer().getUniqueId());
     }
 
     @EventHandler

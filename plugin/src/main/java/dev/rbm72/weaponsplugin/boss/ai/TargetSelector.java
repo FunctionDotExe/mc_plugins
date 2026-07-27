@@ -24,6 +24,7 @@ public final class TargetSelector {
         List<Player> candidates = arena.playersInside().stream()
                 .filter(Player::isOnline)
                 .filter(p -> p.getGameMode() != GameMode.SPECTATOR)
+                .filter(p -> p.getGameMode() != GameMode.CREATIVE)
                 .toList();
 
         if (candidates.isEmpty()) {

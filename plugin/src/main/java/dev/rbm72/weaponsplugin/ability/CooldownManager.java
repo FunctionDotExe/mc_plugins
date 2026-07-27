@@ -2,6 +2,7 @@ package dev.rbm72.weaponsplugin.ability;
 
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -25,12 +26,18 @@ import java.util.UUID;
  * A weapon never touches an action bar, boss bar, or durability meter
  * itself — it just calls {@link #start} and this class handles the rest.
  *
- * <p>Exactly one repeating task runs per player (not per cooldown), which
- * merges every cooldown that player has active into a single action bar
- * line each tick. Separate per-cooldown tasks would race to overwrite the
- * same action bar, causing the display to flicker between abilities.
+ * <p>Exactly one repeating task runs per player (not per cooldown), advancing
+ * every one of that player's cooldowns together: boss bars, the durability
+ * meter, the ready chime, and retiring finished entries.
+ *
+ * <p>It does not write to the action bar. It implements
+ * {@link ActionBarHub.Source} and hands its timers to the hub instead, which
+ * merges them with whatever the player's stones and mount want to show. Before
+ * that, every one of those systems ran its own timer writing the same single
+ * line, and having a weapon cooldown and a movement ability running at once
+ * made the bar strobe between them.
  */
-public final class CooldownManager {
+public final class CooldownManager implements ActionBarHub.Source {
 
     /** Cooldowns at or above this length also get a boss bar, not just the action bar. */
     private static final long BOSS_BAR_THRESHOLD_MS = 8000;
@@ -97,7 +104,7 @@ public final class CooldownManager {
         PlayerCooldowns pc = active.computeIfAbsent(uuid, k -> new PlayerCooldowns());
         pc.entries.put(key(weapon.id(), slot), a);
 
-        if (durationMs >= BOSS_BAR_THRESHOLD_MS) {
+        if (durationMs >= BOSS_BAR_THRESHOLD_MS && !inBossFight(player)) {
             a.bossBar = BossBar.bossBar(weapon.displayName().append(Component.text(slot.suffix)),
                     1.0f, BossBar.Color.PURPLE, BossBar.Overlay.NOTCHED_10);
             player.showBossBar(a.bossBar);
@@ -106,6 +113,31 @@ public final class CooldownManager {
         if (pc.task == null) {
             pc.task = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> tick(player, pc), 0L, TICK_INTERVAL);
         }
+    }
+
+    /**
+     * True while this player is inside a live boss fight, which already owns two boss-bar slots (the
+     * boss's health and the current mechanic's readout).
+     * <p>
+     * A long cooldown normally earns its own boss bar because a 40-75 second timer is genuinely hard
+     * to track on a shared action-bar line. In a boss fight that trade inverts: Minecraft draws each
+     * boss bar's name directly above it at a fixed stride, so a fourth or fifth bar starts writing its
+     * name over the bar above — and the thing being obscured is the mechanic readout the player has
+     * to act on right now. The timer is not lost, only demoted: {@link #segments} still publishes
+     * every cooldown to the action bar, which is where it is read from during a fight anyway.
+     * <p>
+     * Fails open. This is cosmetic prioritisation, and a missing or partially-initialised boss
+     * manager during startup or shutdown must never stop a cooldown from being registered.
+     */
+    private boolean inBossFight(Player player) {
+        try {
+            if (plugin instanceof dev.rbm72.weaponsplugin.WeaponsPlugin wp && wp.bossManager() != null) {
+                return wp.bossManager().isInFight(player);
+            }
+        } catch (Exception ignored) {
+            // Cosmetic only — never let this decide whether a cooldown starts.
+        }
+        return false;
     }
 
     /** Shifts an already-running cooldown's start time earlier, finishing it sooner. No-op if not active. */
@@ -120,6 +152,11 @@ public final class CooldownManager {
         }
     }
 
+    /**
+     * Advances this player's cooldowns: boss bar progress, the durability meter, firing the ready
+     * chime as each one lands, and dropping entries once their READY display has been up long
+     * enough. Renders nothing — {@link #segments} handles what the player actually sees.
+     */
     private void tick(Player player, PlayerCooldowns pc) {
         if (!player.isOnline()) {
             cleanup(player, pc);
@@ -127,15 +164,22 @@ public final class CooldownManager {
         }
 
         long now = System.currentTimeMillis();
-        List<Active> ordered = new ArrayList<>(pc.entries.values());
-        ordered.sort(Comparator.comparingLong(a -> a.readyAtMs >= 0 ? Long.MIN_VALUE : a.durationMs - (now - a.startMs)));
+        // Resolved once per tick rather than per entry: a player with three cooldowns running should
+        // not cost three arena scans.
+        boolean inFight = inBossFight(player);
 
-        List<Component> parts = new ArrayList<>();
-        for (Active a : ordered) {
+        for (Active a : new ArrayList<>(pc.entries.values())) {
+            // Walked into a fight mid-cooldown: give the bar slot back to the boss. One-way on
+            // purpose — restoring it on the way out would make the HUD flicker at the arena edge,
+            // and the action-bar timer covers it either way.
+            if (inFight && a.bossBar != null) {
+                player.hideBossBar(a.bossBar);
+                a.bossBar = null;
+            }
+
             if (a.readyAtMs < 0) {
                 long elapsed = now - a.startMs;
                 double fraction = Math.min(1.0, elapsed / (double) a.durationMs);
-                double remaining = Math.max(0, (a.durationMs - elapsed) / 1000.0);
 
                 if (a.bossBar != null) {
                     a.bossBar.progress((float) (1.0 - fraction));
@@ -144,34 +188,50 @@ public final class CooldownManager {
                     updateDurability(player, a.weapon, 1.0 - fraction);
                 }
 
-                if (elapsed >= a.durationMs) {
-                    onReady(player, a);
-                } else {
-                    parts.add(a.weapon.displayName().append(Component.text(
-                            a.slot.suffix + String.format(Locale.ROOT, " %.1fs", remaining), NamedTextColor.YELLOW)));
+                if (elapsed < a.durationMs) {
                     continue;
                 }
+                onReady(player, a);
             }
 
             if (now - a.readyAtMs >= READY_DISPLAY_MS) {
                 pc.entries.remove(key(a.weapon.id(), a.slot));
-            } else {
-                parts.add(a.weapon.displayName().append(Component.text(a.slot.suffix + " READY", NamedTextColor.GREEN)));
             }
-        }
-
-        if (!parts.isEmpty()) {
-            Component combined = parts.get(0);
-            for (int i = 1; i < parts.size(); i++) {
-                combined = combined.append(Component.text("  |  ", NamedTextColor.GRAY)).append(parts.get(i));
-            }
-            player.sendActionBar(combined);
         }
 
         if (pc.entries.isEmpty()) {
             pc.task.cancel();
             active.remove(player.getUniqueId());
         }
+    }
+
+    /**
+     * This player's cooldown timers for the merged action bar, soonest-to-finish first with anything
+     * already READY pinned in front. Read-only: {@link #tick} owns every state change, so the hub
+     * polling this can never advance a timer or double-fire a ready chime.
+     */
+    @Override
+    public List<Component> segments(Player player) {
+        PlayerCooldowns pc = active.get(player.getUniqueId());
+        if (pc == null || pc.entries.isEmpty()) {
+            return List.of();
+        }
+
+        long now = System.currentTimeMillis();
+        List<Active> ordered = new ArrayList<>(pc.entries.values());
+        ordered.sort(Comparator.comparingLong(a -> a.readyAtMs >= 0 ? Long.MIN_VALUE : a.durationMs - (now - a.startMs)));
+
+        List<Component> parts = new ArrayList<>(ordered.size());
+        for (Active a : ordered) {
+            if (a.readyAtMs >= 0) {
+                parts.add(a.weapon.displayName().append(Component.text(a.slot.suffix + " READY", NamedTextColor.GREEN)));
+                continue;
+            }
+            double remaining = Math.max(0, (a.durationMs - (now - a.startMs)) / 1000.0);
+            parts.add(a.weapon.displayName().append(Component.text(
+                    a.slot.suffix + String.format(Locale.ROOT, " %.1fs", remaining), NamedTextColor.YELLOW)));
+        }
+        return parts;
     }
 
     private void onReady(Player player, Active a) {

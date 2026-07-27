@@ -59,6 +59,12 @@ public final class BossInstance {
      * vanishing and phase titles silently never showing.
      */
     private static final double UI_PRESENCE_BUFFER = 8.0;
+    /** Consecutive ticks (at {@code BossManager.TICK_INTERVAL} apart) entity.isValid() must read
+     *  false before the fight actually ends — see the debounce comment in {@link #tick()}. */
+    private static final int INVALID_TICKS_BEFORE_DESPAWN = 4;
+
+    /** Ceiling on stacked permanent hardening, so repeated failures can never make a boss unkillable. */
+    private static final double MAX_PERMANENT_DAMAGE_REDUCTION = 0.6;
 
     private final WeaponsPlugin plugin;
     private final BossManager manager;
@@ -69,6 +75,8 @@ public final class BossInstance {
 
     private final AddManager addManager = new AddManager();
     private final BossBarController barController = new BossBarController();
+    private final MechanicBar mechanicBar = new MechanicBar();
+    private final ArenaBarrier arenaBarrier;
     private final BossAmbiance.Handle ambianceHandle;
     private final List<BukkitTask> tasks = new ArrayList<>();
     private final Map<BossAttack, Long> lastUsedAtMs = new HashMap<>();
@@ -79,12 +87,19 @@ public final class BossInstance {
     private Player currentTarget;
     private boolean attackInProgress;
     private boolean ended;
-    private Vulnerability vulnerability;
+    private PhaseMechanic gate;
+    private BossEvent activeEvent;
+    /** "<eventId>@<fraction>" for every milestone already spent, so none can replay if the boss heals. */
+    private final Set<String> firedEvents = new HashSet<>();
     private double damageMultiplier = 1.0;
+    /** Never resets on phase change — see {@link #addPermanentDamageReduction}. */
+    private double permanentDamageReduction;
     private long stunnedUntilMs;
     private boolean forcedInvulnerable;
     private int exposuresThisPhase;
     private long floorLockStartMs;
+    private long lastDeflectMs;
+    private int invalidTicks;
 
     BossInstance(WeaponsPlugin plugin, BossManager manager, Boss boss, LivingEntity entity, Arena arena, double maxHealth) {
         this.plugin = plugin;
@@ -94,10 +109,12 @@ public final class BossInstance {
         this.arena = arena;
         this.maxHealth = maxHealth;
 
+        this.arenaBarrier = boss.arenaBarrierEnabled() ? new ArenaBarrier(arena.center(), arena.radius()) : null;
+
         this.ambianceHandle = boss.ambiance().start(this);
         this.currentPhase = BossPhase.select(boss.phases(), 1.0);
         this.currentPhase.onEnter(this);
-        startVulnerability(currentPhase);
+        startGate(currentPhase);
 
         if (boss.worldGuardProtectionEnabled()) {
             WorldGuardArenaGuard.start(boss.id(), arena.center(), arena.radius());
@@ -127,11 +144,29 @@ public final class BossInstance {
         return addManager;
     }
 
+    /**
+     * The dedicated mechanic readout bar. Anything with running state a player must be able to see —
+     * a hit counter, a countdown, which half of the floor they are standing on — belongs here rather
+     * than on the action bar, where it competes with cast bars and combat notices and loses.
+     */
+    public MechanicBar mechanicBar() {
+        return mechanicBar;
+    }
+
+    /** Everyone the mechanic bar should currently be talking to. */
+    public java.util.List<Player> barViewers() {
+        return arena.playersNear(UI_PRESENCE_BUFFER);
+    }
+
     public boolean isEnraged() {
         return currentPhase.isEnrage();
     }
 
-    void trackTask(BukkitTask task) {
+    /**
+     * Registers a task for cancellation when the fight ends. Public: {@link PhaseMechanic}
+     * implementations live outside this package and every one of them schedules work.
+     */
+    public void trackTask(BukkitTask task) {
         tasks.add(task);
     }
 
@@ -141,7 +176,26 @@ public final class BossInstance {
      * boss forcibly invulnerable, regardless of whatever the vulnerability cycle is doing underneath.
      */
     double damageMultiplier() {
-        return forcedInvulnerable ? 0.0 : damageMultiplier;
+        if (forcedInvulnerable) {
+            return 0.0;
+        }
+        return damageMultiplier * (1.0 - permanentDamageReduction);
+    }
+
+    /**
+     * Permanently hardens this boss for the rest of the fight — armour it recovered, a ritual it
+     * completed, anything the group had a chance to prevent and didn't. Unlike the phase multiplier
+     * this never resets on a phase change, which is the entire point: it is the lasting consequence of
+     * a failed optional mechanic, and it compounds each time that mechanic is failed again.
+     * <p>
+     * Capped well short of total immunity so no amount of stacked failure can make a boss unkillable
+     * and strand a group in a fight they cannot finish or leave.
+     */
+    public void addPermanentDamageReduction(double amount) {
+        if (amount <= 0) {
+            return;
+        }
+        permanentDamageReduction = Math.min(MAX_PERMANENT_DAMAGE_REDUCTION, permanentDamageReduction + amount);
     }
 
     /** Public: trial attacks live in {@code bosses.attacks}, a different package from the rest of this framework. */
@@ -160,19 +214,86 @@ public final class BossInstance {
     }
 
     /**
-     * Called the instant a phase's forced mechanic is actually completed — a weak-point set fully
-     * broken ({@link Vulnerability}), or a boss's own signature mechanic (guards cleared, real target
-     * found, infection cured, whatever it is) resolved successfully. Either kind satisfies the phase
-     * floor below; a boss isn't required to clear both a generic weak-point cycle and its unique
-     * mechanic in the same phase, just to have genuinely engaged with at least one. Public: signature
-     * mechanics live in {@code bosses.attacks}, a different package from the rest of this framework.
+     * Called the instant a phase's forced mechanic is actually completed — this phase's
+     * {@link PhaseMechanic} opening (weak-point set broken, guards cleared, hostage freed, parry window
+     * struck), or a signature trial attack resolving successfully. Either kind satisfies the phase
+     * floor below; a boss isn't required to clear both its gate and a trial in the same phase, just
+     * to have genuinely engaged with at least one. Public: gates and signature mechanics both live
+     * outside this package.
      */
     public void recordExposure() {
         exposuresThisPhase++;
     }
 
     private boolean phaseMechanicSatisfied() {
-        return currentPhase.vulnerabilitySpec() == null || exposuresThisPhase > 0;
+        if (!currentPhase.hasMechanic()) {
+            return true;
+        }
+        // A phase that ends on its own terms (survive the timer, push it off the throne) counts as
+        // satisfied the moment it declares itself done — otherwise the floor would pin the boss on the
+        // seam while the mechanic is simultaneously trying to move the fight past it.
+        return exposuresThisPhase > 0 || mechanicReadyToAdvance();
+    }
+
+    private boolean mechanicReadyToAdvance() {
+        if (gate == null) {
+            return false;
+        }
+        try {
+            return gate.readyToAdvance();
+        } catch (Exception e) {
+            plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                    "Phase mechanic threw deciding whether to advance — treating it as not ready.", e);
+            return false;
+        }
+    }
+
+    /**
+     * The active mechanic's per-attacker say on one hit, applied after the global multiplier and
+     * before the phase floor. This is what lets a phase express a rule about <em>how</em> you are
+     * fighting — only the duel target's blows land, only rear hits count — rather than the single
+     * global "can anyone hurt it right now" switch the old gate system was limited to.
+     */
+    double filterMechanicDamage(Player attacker, double damage) {
+        if (gate == null || attacker == null) {
+            return damage;
+        }
+        try {
+            return gate.filterDamage(attacker, damage);
+        } catch (Exception e) {
+            // Never let a broken rule cancel a legitimate hit — fall back to the unfiltered number.
+            plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                    "Phase mechanic threw filtering a hit — using the unfiltered damage.", e);
+            return damage;
+        }
+    }
+
+    /**
+     * Relays a resolved player hit to the active mechanic so a reaction archetype can see the hit
+     * itself rather than only the clock, and a pacing archetype can meter how fast damage is arriving.
+     * Called from {@link BossDamageListener} once the final damage number is settled.
+     */
+    void notifyGateDamaged(Player attacker, double damageDealt) {
+        // Events see the hit first and see it unconditionally, including hits their own shield just
+        // blocked down to zero — a hit-count check is counting swings, not damage.
+        if (activeEvent != null) {
+            try {
+                activeEvent.onHit(this, attacker, damageDealt);
+            } catch (Exception e) {
+                plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                        "Boss event '" + activeEvent.id() + "' threw handling a hit — ignoring it.", e);
+            }
+        }
+        if (gate == null) {
+            return;
+        }
+        try {
+            gate.onBossDamaged(attacker, damageDealt);
+        } catch (Exception e) {
+            // A mechanic throwing on a damage notification must never cancel the hit or kill the fight.
+            plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                    "Phase gate threw handling a boss hit — ignoring the notification.", e);
+        }
     }
 
     /** Grace period before the floor gives up and lets the fight through anyway — a safety valve, not the intended path. */
@@ -196,19 +317,31 @@ public final class BossInstance {
 
     /**
      * Stops raw burst from skipping whole phases without ever being able to hard-lock the fight.
+     * Every phase — not just the final one — holds its floor until that phase's mechanic has actually
+     * been engaged, with {@link #floorLockTimedOut()} as the escape hatch.
      * <ul>
-     *   <li>Every non-final phase: a single hit can never carry the boss <em>past</em> the next
-     *       phase's boundary. Reaching that boundary advances the phase (which re-locks this on the
-     *       new one), so no amount of damage collapses several phases — and their mechanics — in one
-     *       blow. This is NOT gated on completing the phase mechanic: the mechanic is what flips the
-     *       boss from armored (slow) to exposed (fast) via its damage multiplier, a strong incentive,
-     *       not a wall that can freeze progress if a weak-point set is unreachable or an exposure
-     *       fails to register. So the fight always moves; it just crawls until the mechanic's done.</li>
-     *   <li>The enrage/final phase has no next boundary, so it stays gated on its mechanic (can't be
-     *       finished off until exposed at least once) with the {@link #floorLockTimedOut()} safety
-     *       valve as the escape hatch — this is the one place a lingering floor is acceptable because
-     *       there's no phase beyond it to get stuck before.</li>
+     *   <li><b>Mechanic not yet satisfied:</b> the floor pins health <em>exactly on</em> the next
+     *       phase's boundary. {@link BossPhase#select} only advances once health drops strictly below
+     *       a threshold, so sitting on the seam means the phase deliberately does not tick over: the
+     *       boss stays here until players do what this phase is asking. The final phase, having no
+     *       next boundary, pins at 1% instead.</li>
+     *   <li><b>Mechanic satisfied</b> (or the floor lock timed out): the floor drops a sliver
+     *       <em>past</em> the seam so the crossing actually fires, and the final phase opens all the
+     *       way to 0 so the boss can be finished.</li>
      * </ul>
+     * An ungated phase counts as satisfied from the instant it starts, so it behaves as a pure,
+     * unobstructed damage race — that is the whole point of authoring one.
+     * <p>
+     * This used to gate only the final phase, on the reasoning that a phase's armored multiplier was
+     * itself the wall and a floor that lingered risked freezing the fight. That was wrong in a way
+     * that let high-DPS groups delete a boss outright: every gate opens with a short grace window
+     * before it arms (so a phase transition isn't three cinematics at once), during which damage runs
+     * at ×1.0. With the floor allowing a hit to land past the seam, each of those windows was enough
+     * to cross a whole band — chaining every phase's grace window back-to-back took a boss from full
+     * to 1% in seconds, with no gate ever finishing arming, and the timeout valve then handed over the
+     * kill. Pinning the seam until the mechanic is engaged closes that chain; the timeout valve (now
+     * applying to every phase) is what keeps an unreachable weak point from deadlocking the fight.
+     * <p>
      * Called from {@link BossDamageListener} at MONITOR, after every other multiplier/bonus — the
      * last word on the number, not an earlier, bypassable step.
      */
@@ -217,24 +350,29 @@ public final class BossInstance {
         int index = phases.indexOf(currentPhase);
         boolean lastPhase = index + 1 >= phases.size();
 
-        double floorFraction;
-        if (lastPhase) {
-            boolean satisfied = phaseMechanicSatisfied();
-            if (satisfied) {
-                floorLockStartMs = 0L;
-            } else if (floorLockTimedOut()) {
-                satisfied = true;
-            }
-            floorFraction = satisfied ? 0.0 : 0.01;
-        } else {
-            // No-skip clamp: a hit lands the boss in the next phase at worst, never deeper.
-            floorFraction = phases.get(index + 1).entryThresholdFraction();
+        boolean satisfied = phaseMechanicSatisfied();
+        if (satisfied) {
+            floorLockStartMs = 0L;
+        } else if (floorLockTimedOut()) {
+            satisfied = true;
         }
+
+        double floorFraction = lastPhase
+                ? (satisfied ? 0.0 : 0.01)
+                : phases.get(index + 1).entryThresholdFraction();
 
         if (floorFraction <= 0.0) {
             return rawDamage;
         }
         double floorHealth = maxHealth * floorFraction;
+        if (!lastPhase && satisfied) {
+            // Mechanic done — let the boundary-reaching hit land a hair PAST the seam instead of
+            // exactly on it. BossPhase.select only advances once health drops strictly below a
+            // threshold, so a floor pinned exactly at the next threshold leaves the boss asymptoting
+            // onto the seam and the phase change never fires. That pinning is precisely what the
+            // unsatisfied branch above wants; here it would be a deadlock, so nudge past it.
+            floorHealth -= Math.max(0.5, maxHealth * 0.002);
+        }
         double allowedDamage = Math.max(0.0, entity.getHealth() - floorHealth);
         return Math.min(rawDamage, allowedDamage);
     }
@@ -252,20 +390,38 @@ public final class BossInstance {
         return System.currentTimeMillis() < stunnedUntilMs;
     }
 
-    private void startVulnerability(BossPhase phase) {
-        VulnerabilitySpec spec = phase.vulnerabilitySpec();
-        if (spec != null) {
-            vulnerability = new Vulnerability(this, spec);
-            vulnerability.start();
-        } else {
-            damageMultiplier = 1.0;
+    /**
+     * Rate-limits the "your hit was fully shielded" cue so a fast weapon's stream of blocked hits
+     * gives one clear deflect beat, not a machine-gun of them. Returns true at most every 350ms.
+     * Public: the boss-damage listener lives in this package but calls it per hit. Whether a hit is
+     * actually blocked (boss armored while weak points stand, or a trial has it invulnerable) is the
+     * caller's call — this only throttles the feedback.
+     */
+    public boolean signalDeflectReady() {
+        long now = System.currentTimeMillis();
+        if (now - lastDeflectMs < 350L) {
+            return false;
         }
+        lastDeflectMs = now;
+        return true;
     }
 
-    private void stopVulnerability() {
-        if (vulnerability != null) {
-            vulnerability.stop();
-            vulnerability = null;
+    private void startGate(BossPhase phase) {
+        var factory = phase.mechanicFactory();
+        if (factory == null) {
+            // Deliberately ungated phase: fully hittable for the whole band. Reset the multiplier so
+            // no armored/exposed value left over from the previous phase's gate leaks into this one.
+            damageMultiplier = 1.0;
+            return;
+        }
+        gate = factory.apply(this);
+        gate.start();
+    }
+
+    private void stopGate() {
+        if (gate != null) {
+            gate.stop();
+            gate = null;
         }
     }
 
@@ -298,30 +454,58 @@ public final class BossInstance {
     /**
      * Every boss now hits harder the deeper into the fight it gets — cooldowns shrink phase over
      * phase (not just at the very last, "enrage" one), so the pace visibly ramps up instead of
-     * staying flat until one binary flip at the end. Floors out at 30% of listed cooldowns so
-     * attacks never become an unreadable spam-blur; enrage gets an extra kick on top.
+     * staying flat until one binary flip at the end. Floored so attacks never become an unreadable
+     * spam-blur; enrage gets an extra kick on top.
+     * <p>
+     * All three numbers are {@code bosses.<id>.*} config keys (see {@link Boss#configDouble}) rather
+     * than hardcoded, so a boss whose late-phase pacing reads as spam rather than an escalating
+     * pattern can be retuned without recompiling. Defaults are deliberately softer than the original
+     * 0.65/0.30/0.70 — players reported the ramp turning "dodge this" attacks into a blur with no
+     * room to react by the final phase.
      */
     private double phaseCooldownScale() {
         List<BossPhase> phases = boss.phases();
         int index = phases.indexOf(currentPhase);
         int lastIndex = phases.size() - 1;
         double progress = lastIndex <= 0 ? 0.0 : (double) Math.max(index, 0) / lastIndex;
-        double scale = 1.0 - progress * 0.65;
+        double progressCut = boss.phaseCooldownProgressCut();
+        double scale = 1.0 - progress * progressCut;
         if (currentPhase.isEnrage()) {
-            scale *= 0.7;
+            scale *= boss.phaseCooldownEnrageCut();
         }
-        return Math.max(0.3, scale);
+        return Math.max(boss.phaseCooldownFloor(), scale);
     }
 
-    /** Caps how much of an attack's cooldown can carry over from a previous phase's use of it. */
+    /** Most cooldown an attack may still owe when a phase it belongs to becomes active. */
     private static final long MAX_PHASE_TRANSITION_COOLDOWN_MS = 2500;
 
+    /**
+     * Trims how much of an attack's cooldown carries into a phase that just became active. Shared
+     * attack instances keep their cooldown timestamp across phases (intentional — it stops a boss
+     * opening a new phase with the move it just finished), but a phase reusing an attack from an
+     * earlier phase could otherwise walk in owing its full cooldown and never get it off.
+     * <p>
+     * Only ever makes an attack <em>more</em> ready, never less. The previous version stamped every
+     * attack last used more than {@value #MAX_PHASE_TRANSITION_COOLDOWN_MS}ms ago as though it had
+     * been used exactly that long ago — which for anything with a real cooldown (8-26s across the
+     * roster) meant taking an attack that was fully off cooldown and putting most of it back on. The
+     * practical effect was that every phase transition blacked out most of the new phase's pool, so
+     * bosses visibly cycled the same two or three moves all fight instead of their whole kit.
+     */
     private void capCarryoverCooldowns(BossPhase phase) {
         long now = System.currentTimeMillis();
+        double scale = phaseCooldownScale();
         for (BossAttack attack : phase.attacks()) {
             Long lastUsed = lastUsedAtMs.get(attack);
-            if (lastUsed != null && now - lastUsed > MAX_PHASE_TRANSITION_COOLDOWN_MS) {
-                lastUsedAtMs.put(attack, now - MAX_PHASE_TRANSITION_COOLDOWN_MS);
+            if (lastUsed == null) {
+                continue;
+            }
+            long cooldownMs = Math.round(attack.cooldownSeconds() * scale * 1000);
+            // Timestamp at which this attack would owe exactly the allowed carryover. Anything used
+            // before that is already at least as ready and must be left alone.
+            long earliestAllowed = now - Math.max(0L, cooldownMs - MAX_PHASE_TRANSITION_COOLDOWN_MS);
+            if (lastUsed > earliestAllowed) {
+                lastUsedAtMs.put(attack, earliestAllowed);
             }
         }
     }
@@ -402,17 +586,148 @@ public final class BossInstance {
         showTitle(boss.defeatTitle(), boss.defeatSubtitle());
     }
 
+    /**
+     * Soft leash that mirrors the player wall for the boss itself: a per-player world border can't
+     * hold a mob, so if the boss ever ends up past the arena radius (an attack's knockback, ordinary
+     * pathfinding around terrain) it's clamped straight back to just inside the wall. It preserves
+     * facing so the teleport reads as "shoved back", not a spin, and drops the boss onto the surface
+     * at the clamped column rather than keeping its old Y — otherwise clamping the horizontal position
+     * into a hillside would bury it inside blocks (looks like it "dug itself a hole").
+     */
+    private void confineToArena() {
+        Location center = arena.center();
+        Location loc = entity.getLocation();
+        World world = loc.getWorld();
+        if (world == null || center.getWorld() == null || !world.equals(center.getWorld())) {
+            return;
+        }
+        double dx = loc.getX() - center.getX();
+        double dz = loc.getZ() - center.getZ();
+        double distSq = dx * dx + dz * dz;
+        double radius = arena.radius();
+        if (distSq <= radius * radius) {
+            return;
+        }
+        double scale = (radius - 1.0) / Math.sqrt(distSq); // pull just inside the wall, not onto it
+        Location clamped = loc.clone();
+        clamped.setX(center.getX() + dx * scale);
+        clamped.setZ(center.getZ() + dz * scale);
+        // Land on the surface of the clamped column so we never teleport the boss into solid ground
+        // (which is what read as it "digging a hole") — and it's being yanked back to the floor anyway.
+        clamped.setY(world.getHighestBlockYAt(clamped.getBlockX(), clamped.getBlockZ()) + 1);
+        entity.teleport(clamped);
+    }
+
+    /**
+     * The phase this tick should be running, from two independent sources that can each only push the
+     * fight <em>forward</em>:
+     * <ul>
+     *   <li>the health band, exactly as before — the default for a phase that ends when a number drops;</li>
+     *   <li>the active mechanic declaring itself finished, which advances one phase regardless of
+     *       health. That is what makes "survive this stretch", "push it off the throne" and "drop the
+     *       arena out from under it" expressible at all, since none of them is a health threshold.</li>
+     * </ul>
+     * Taking the later of the two means a boss healing back up (Add-cull's failure burst, say) can
+     * never rewind the fight into a phase whose mechanic the group has already beaten.
+     */
+    private BossPhase selectPhase(double fraction) {
+        List<BossPhase> phases = boss.phases();
+        int currentIndex = phases.indexOf(currentPhase);
+        int byHealth = phases.indexOf(BossPhase.select(phases, fraction));
+        int target = Math.max(currentIndex, byHealth);
+        if (mechanicReadyToAdvance() && currentIndex + 1 < phases.size()) {
+            target = Math.max(target, currentIndex + 1);
+        }
+        return phases.get(Math.max(0, Math.min(target, phases.size() - 1)));
+    }
+
+    /**
+     * Fires the first armed event whose milestone the boss has dropped to, if any. Each
+     * {@code id@fraction} pair is recorded the instant it starts, so a boss that heals back above a
+     * milestone (Add-cull's failure burst, the shield's own absorb heal) can never replay it.
+     *
+     * @return true if an event took over this tick.
+     */
+    private boolean tryStartEvent(double fraction) {
+        for (BossEvent event : boss.events()) {
+            for (double trigger : event.triggerFractions()) {
+                if (fraction > trigger) {
+                    continue;
+                }
+                String key = event.id() + "@" + trigger;
+                if (!firedEvents.add(key)) {
+                    continue;
+                }
+                activeEvent = event;
+                try {
+                    event.run(this, () -> activeEvent = null);
+                } catch (Exception e) {
+                    // A thrown event must never leave the boss frozen with activeEvent stuck set.
+                    plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                            "Boss event '" + event.id() + "' threw on start — skipping it.", e);
+                    try {
+                        event.cleanup(this);
+                    } catch (Exception ignored) {
+                        // Cleanup of an already-broken event is best effort.
+                    }
+                    activeEvent = null;
+                    continue;
+                }
+                return activeEvent != null;
+            }
+        }
+        return false;
+    }
+
     void tick() {
         if (ended) {
             return;
         }
-        if (!entity.isValid() || entity.isDead()) {
+        // A genuinely dead boss (isDead) ends immediately — that state doesn't reverse. But
+        // isValid() alone (not dead, just "not currently in the world") has been seen to read false
+        // for a tick or two on a boss spawned into a just-created realm world, before the entity's
+        // chunk finishes settling into the world's tracked/ticking state — real spawns onto an
+        // already-existing world never hit this. A single false reading there used to end the fight
+        // immediately: BossInstance tore itself down (bar, gate, tick loop registration) while the
+        // actual mob entity was left behind, unmanaged, in the world — which is exactly "the boss
+        // spawned in at the right size but with no bar and no attacks, behaving like a plain mob"
+        // reported after a first-ever realm entry. Debounced so a few ticks of that transient state
+        // don't end the fight; a real despawn (killed by another plugin, chunk actually unloaded
+        // because everyone left) stays invalid past this window regardless.
+        if (entity.isDead()) {
             end(EndReason.DESPAWNED);
             return;
         }
+        if (!entity.isValid()) {
+            invalidTicks++;
+            if (invalidTicks == 1) {
+                plugin.getLogger().warning(() -> "Boss '" + boss.id()
+                        + "' entity reported invalid on a tick — waiting to see if it's transient before ending the fight.");
+            }
+            if (invalidTicks >= INVALID_TICKS_BEFORE_DESPAWN) {
+                end(EndReason.DESPAWNED);
+            }
+            return;
+        }
+        invalidTicks = 0;
+
+        // Re-anchor the arena's combat/UI center to where the boss actually is this tick. Everything
+        // downstream (target selection, boss bar viewers, AoE damage/presence checks in attacks) keys
+        // off this, so a chased/drifted fight keeps its bar and keeps attacking instead of decaying
+        // into a passive, bar-less regular mob the moment it leaves its spawn point.
+        // The boss's own leash back inside the radius runs unconditionally — a flier (ghast, phantom,
+        // ender dragon) must never be able to wander off, whether or not the per-player visual border
+        // (arenaBarrier, purely cosmetic and off by default now that every boss fights inside a walled
+        // realm) is turned on for this boss.
+        confineToArena();
+        if (arenaBarrier != null) {
+            arenaBarrier.update();
+        }
+
+        arena.updateLiveCenter(entity.getLocation());
 
         double fraction = Math.max(0.0, Math.min(1.0, entity.getHealth() / maxHealth));
-        BossPhase newPhase = BossPhase.select(boss.phases(), fraction);
+        BossPhase newPhase = selectPhase(fraction);
         if (newPhase != currentPhase) {
             boolean enteringEnrage = newPhase.isEnrage() && !currentPhase.isEnrage();
             currentPhase = newPhase;
@@ -427,7 +742,8 @@ public final class BossInstance {
                 entity.setGlowing(false);
             }
             addManager.despawnAll();
-            stopVulnerability();
+            stopGate();
+            mechanicBar.clear();
             // Shared attack instances carry their cooldown timestamp across phases (that's
             // intentional — it stops a boss opening a new phase with the same move it just used).
             // But it also means a phase reused from earlier (Cataclysm reusing Frostbound's
@@ -437,7 +753,7 @@ public final class BossInstance {
             // a short beat of "nothing" instead of the whole cooldown window.
             capCarryoverCooldowns(currentPhase);
             currentPhase.onEnter(this);
-            startVulnerability(currentPhase);
+            startGate(currentPhase);
             if (enteringEnrage) {
                 empowerForEnrage();
             }
@@ -448,6 +764,17 @@ public final class BossInstance {
         BossHologram.update(this, fraction);
 
         if (currentTarget == null) {
+            return;
+        }
+
+        // A blocking event owns the fight outright while it runs: no attack selection, no chase, the
+        // player's whole attention on the one thing. A non-blocking one runs alongside normal combat,
+        // which is what makes a repositioning or side-objective mechanic tense rather than a free chore.
+        if (activeEvent != null) {
+            if (activeEvent.blocksCombat()) {
+                return;
+            }
+        } else if (tryStartEvent(fraction) && activeEvent != null && activeEvent.blocksCombat()) {
             return;
         }
 
@@ -504,7 +831,17 @@ public final class BossInstance {
             }
             tasks.clear();
             addManager.despawnAll();
-            stopVulnerability();
+            stopGate();
+            if (activeEvent != null) {
+                // Mid-event teardown: its props and invulnerability flag must not outlive the fight.
+                try {
+                    activeEvent.cleanup(this);
+                } catch (Exception e) {
+                    plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                            "Boss event '" + activeEvent.id() + "' threw during cleanup.", e);
+                }
+                activeEvent = null;
+            }
             for (UUID id : griefEntities) {
                 Entity griefEntity = Bukkit.getEntity(id);
                 if (griefEntity != null) {
@@ -513,6 +850,10 @@ public final class BossInstance {
             }
             griefEntities.clear();
             barController.hideAll();
+            mechanicBar.clear();
+            if (arenaBarrier != null) {
+                arenaBarrier.clear();
+            }
             if (ambianceHandle != null) {
                 ambianceHandle.end();
             }

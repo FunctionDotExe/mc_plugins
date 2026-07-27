@@ -111,7 +111,7 @@ public final class BlindingRadianceAttack extends BossAttack {
                                 Location point = bossLoc.clone().add(beamDir.clone().multiply(d));
                                 point.getWorld().spawnParticle(org.bukkit.Particle.END_ROD, point.add(0, 1, 0), 2, 0.1, 0.1, 0.1, 0);
                             }
-                            for (Player player : Arena.playersNear(bossLoc, radius)) {
+                            for (Player player : Arena.combatants(bossLoc, radius)) {
                                 Vector toPlayer = player.getLocation().toVector().subtract(bossLoc.toVector());
                                 if (toPlayer.lengthSquared() < 1.0E-6) {
                                     continue;

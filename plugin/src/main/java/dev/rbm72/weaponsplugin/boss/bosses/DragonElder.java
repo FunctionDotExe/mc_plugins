@@ -4,9 +4,16 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
+import dev.rbm72.weaponsplugin.boss.events.SpreadCheckEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.EscalatingDoomMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.ForceFieldMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.MechanicField;
+import dev.rbm72.weaponsplugin.boss.mechanics.ShadowBombardmentMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.CataclysmAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.DiveBombAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.FireballBarrageAttack;
@@ -68,27 +75,30 @@ public final class DragonElder extends Boss {
         SkyboundAssaultAttack skyboundAssault = new SkyboundAssaultAttack(plugin);
 
         this.phases = List.of(
-                new BossPhase("Phase 1", 1.0,
+                // Shadow Bombardment: its signature. The shadow crosses the floor first and the strike
+                // follows the same line, so the information always arrives before the danger does — for
+                // anyone actually watching the ground.
+                new BossPhase("Shadow Bombardment", 1.0,
                         List.of(hover, fireballBarrage, wingGust, diveBomb, tailSweep),
                         false, DragonElder::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Ossified Scales", NamedTextColor.DARK_RED),
-                                Material.BONE_BLOCK, DRAGON_RED, 0, false)),
+                        this::shadowBombardment),
+                // Wing Cyclone: a permanent outward gale. Bracing holds you in place and costs you all
+                // your mobility; not bracing costs you the platform.
                 new BossPhase("Wings of Ruin", 0.75,
                         List.of(hover, firestormBreath, grabAndDrop, fireballBarrage, diveBomb),
                         false, DragonElder::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Ossified Scales", NamedTextColor.DARK_RED),
-                                Material.BONE_BLOCK, DRAGON_RED, 1, false)),
+                        this::wingCyclone),
+                // Ungated: no mechanic at all, just an elder dragon with its whole kit. Pure race.
                 new BossPhase("Elder Fury", 0.40,
                         List.of(hover, meteorWings, firestormBreath, grabAndDrop, tailSweep, skyboundAssault),
-                        false, DragonElder::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Ancient Wardbones", NamedTextColor.RED),
-                                Material.DRAGON_HEAD, ELDER_BLACK, 2, false)),
+                        false, DragonElder::onEnterPhase3),
+                // Its last stand runs on a clock only sustained damage holds back. Mid-roster, so
+                // failure compounds: it grows, speeds up and hardens permanently (design rule 4).
                 new BossPhase("Cataclysm", 0.15,
                         List.of(hover, fireballBarrage, wingGust, diveBomb, firestormBreath, tailSweep, cataclysm,
                                 skyboundAssault),
                         true, DragonElder::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Heart of the Wyrm", NamedTextColor.DARK_RED),
-                                Material.NETHER_STAR, DRAGON_RED, 3, true)));
+                        this::cataclysmClock));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new WyrmscaleBow(plugin).createItem())
@@ -128,6 +138,60 @@ public final class DragonElder extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Shadow Bombardment: a shadow sweeps the floor and the impacts follow along the same line a beat
+     * later. Nothing marks the impact point — only the shadow — so the phase rewards extrapolating
+     * where a moving line is going rather than reacting to a circle appearing underfoot.
+     */
+    private PhaseMechanic shadowBombardment(BossInstance instance) {
+        return new ShadowBombardmentMechanic(instance, "Shadow Bombardment", ELDER_BLACK, DRAGON_RED,
+                configInt("bombardment-run-interval-ticks", 150),
+                configInt("bombardment-impact-delay-ticks", 34),
+                configDouble("bombardment-shadow-speed", 0.55),
+                configDouble("bombardment-impact-radius", 3.4),
+                configDouble("bombardment-damage", 15.0),
+                configInt("bombardment-impacts-per-run", 5));
+    }
+
+    /**
+     * Wing Cyclone: a standing outward gale that will walk you off the edge if you let it. Crouching
+     * braces you against it completely — a verb nothing else in the roster uses — but a braced player
+     * is a stationary one, which is exactly what its bombardment and breath want you to be.
+     */
+    private PhaseMechanic wingCyclone(BossInstance instance) {
+        MechanicField bracing = (inst, player) -> player.isSneaking();
+        return new ForceFieldMechanic(instance, "Wing Cyclone", DRAGON_RED,
+                ForceFieldMechanic.Direction.OUTWARD, ForceFieldMechanic.Focus.BOSS,
+                configDouble("cyclone-push-per-tick", 0.06),
+                configDouble("cyclone-danger-radius", 22.0),
+                configDouble("cyclone-edge-damage-per-second", 9.0),
+                bracing);
+    }
+
+    /**
+     * Cataclysm: the finish is a clock the group can only hold down with sustained damage. Every time
+     * it tops out the dragon is permanently larger, faster and harder to hurt, so falling behind
+     * compounds rather than simply costing health.
+     */
+    private PhaseMechanic cataclysmClock(BossInstance instance) {
+        return new EscalatingDoomMechanic(instance, "Cataclysm", DRAGON_RED,
+                configDouble("cataclysm-fill-per-second", 4.5),
+                configDouble("cataclysm-damage-per-point", 5.5),
+                configDouble("cataclysm-cap", 100.0),
+                configDouble("cataclysm-scale-step", 1.09),
+                configDouble("cataclysm-speed-step", 1.07),
+                configDouble("cataclysm-harden-step", 0.07),
+                configDouble("cataclysm-overflow-damage", 14.0));
+    }
+
+    /** Offset from its phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new HitCountShieldEvent(plugin, id(), new double[] {0.88, 0.34}),
+                new SpreadCheckEvent(plugin, id(), new double[] {0.62, 0.28}));
     }
 
     @Override

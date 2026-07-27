@@ -368,10 +368,49 @@ weapons:
 # definition or one of its attacks — see the class constructors for what
 # they use and the defaults they fall back to if a key is missing.
 
+# Per-consumable tunables. Charges refill on their own — `recharge-seconds` is
+# the real time to regain one spent charge, `use-cooldown-seconds` is the
+# minimum gap between two uses no matter how many charges are banked.
+consumables:
+  lifebloom_vial:
+    max-charges: 3
+    recharge-seconds: 40.0
+    use-cooldown-seconds: 6.0
+    heal: 8.0
+
+  emberheart_salve:
+    max-charges: 2
+    recharge-seconds: 55.0
+    use-cooldown-seconds: 8.0
+    regen-ticks: 160
+    fire-resist-ticks: 200
+
+  warding_poultice:
+    max-charges: 2
+    recharge-seconds: 70.0
+    use-cooldown-seconds: 10.0
+    heal: 6.0
+    absorption-ticks: 600
+    resistance-ticks: 160
+
+  last_light_charm:
+    max-charges: 1
+    recharge-seconds: 180.0
+    use-cooldown-seconds: 30.0
+    heal-fraction: 0.5
+    regen-ticks: 120
+
+# Per-stone tunables.
+stones:
+  skyleap_stone:
+    # Gap between double jumps. The one-jump-per-airtime rule is the real
+    # anti-spam gate; this only stops hopping a leap off every landing.
+    cooldown-seconds: 0.9
+
 bosses:
   fallen_king:
     max-health: 300.0
-    arena-radius: 20.0
+    arena-radius: 54.0
 
     loot-armor-chance: 0.35
     loot-materials-chance: 0.6
@@ -470,3 +509,12 @@ bosses:
     hazard-block-count: 5
     hazard-drop-height: 12.0
     hazard-cooldown-seconds: 12.0
+
+  storm_tyrant:
+    # Scales every point of damage the Storm Tyrant deals, on top of its
+    # individual attacks' own numbers. See Boss#outgoingDamageMultiplier.
+    damage-multiplier: 3.0
+
+  worldender:
+    # Entity SCALE at spawn. Enrage multiplies on top of this.
+    scale: 3.0

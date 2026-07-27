@@ -6,6 +6,7 @@ import dev.rbm72.weaponsplugin.boss.AttackContext;
 import dev.rbm72.weaponsplugin.boss.BossAttack;
 import dev.rbm72.weaponsplugin.boss.BossAudio;
 import dev.rbm72.weaponsplugin.fx.Fx;
+import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -73,10 +74,12 @@ public final class AfflictionAttack extends BossAttack {
                     Fx.sound(ctx.bossLocation(), applySound, 0.6f, 1.2f);
                 },
                 () -> {
-                    for (Player player : Arena.playersNear(ctx.bossLocation(), radius)) {
+                    for (Player player : Arena.combatants(ctx.bossLocation(), radius)) {
                         int now = Math.min(maxStacks, stacks.getOrDefault(player.getUniqueId(), 0) + 1);
                         stacks.put(player.getUniqueId(), now);
-                        player.sendActionBar(Component.text(brandName + " x" + now, NamedTextColor.RED));
+                        ctx.plugin().actionBarHub().flash(player,
+                                Component.text(brandName + " x" + now, NamedTextColor.RED),
+                                2000, ActionBarHub.PRIORITY_NOTICE);
                         Fx.coloredBurst(player.getLocation().add(0, 1, 0), color, 1.4f, 18, 0.4);
                         Fx.sound(player.getLocation(), applySound, 0.8f, 1.0f);
                     }

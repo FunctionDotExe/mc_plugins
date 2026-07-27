@@ -4,9 +4,15 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.BeaconEvent;
+import dev.rbm72.weaponsplugin.boss.events.ConvergenceNukeEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.GazeMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.OrderedTargetsMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.SilenceWardMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.ChoirWailAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.FangLineAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.GrandIllusionAttack;
@@ -52,26 +58,29 @@ public final class HollowChoir extends Boss {
         GrandIllusionAttack grandIllusion = new GrandIllusionAttack(plugin);
 
         this.phases = List.of(
+                // Silence Ward: a cantor plants a bubble where every strike lands soft. Kill it, fight
+                // from outside it, or accept smothered damage — three real answers, none of them a wall.
                 new BossPhase("The First Voice", 1.0,
                         List.of(fangLine, vexSwarm),
                         false, HollowChoir::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Warded Robes", NamedTextColor.LIGHT_PURPLE),
-                                Material.AMETHYST_SHARD, PALE_VIOLET, 0, false)),
+                        this::silenceWard),
+                // Ungated: no mechanic, just the choir and its hounds. Pure race.
                 new BossPhase("The Hunting Memory", 0.75,
                         List.of(fangLine, vexSwarm, spectralHounds),
-                        false, HollowChoir::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Woven Sigils", NamedTextColor.LIGHT_PURPLE),
-                                Material.AMETHYST_CLUSTER, PALE_VIOLET, 1, false)),
+                        false, HollowChoir::onEnterPhase2),
+                // Discordant Verse: its signature, and the only mechanic in the game that reads your
+                // camera. Whoever is looking at a head when it sings eats the verse — so the group has
+                // to give up sight of the fight, repeatedly, and keep fighting anyway.
                 new BossPhase("The Dissonant Choir", 0.40,
                         List.of(fangLine, vexSwarm, spectralHounds, choirWail),
                         false, HollowChoir::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Frayed Chorus", NamedTextColor.LIGHT_PURPLE),
-                                Material.SCULK_SHRIEKER, PALE_VIOLET, 2, false)),
+                        this::discordantVerse),
+                // Vex Round: shield shards that must die in the order the chimes call. The one phase
+                // where the wrong swing is worse than no swing at all.
                 new BossPhase("Full Requiem", 0.15,
                         List.of(fangLine, vexSwarm, spectralHounds, choirWail, grandIllusion),
                         true, HollowChoir::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Heart of the Choir", NamedTextColor.RED),
-                                Material.NETHER_STAR, Color.fromRGB(180, 20, 20), 3, true)));
+                        this::vexRound));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Mournsong(plugin).createItem())
@@ -105,6 +114,65 @@ public final class HollowChoir extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Silence Ward: a cantor holds a bubble in which every strike lands soft. It usually sits on the
+     * choir itself, so the group is choosing between walking over to silence the cantor, backing out
+     * to full-strength range, or eating the penalty — a standing decision, never a lockout.
+     */
+    private PhaseMechanic silenceWard(BossInstance instance) {
+        return new SilenceWardMechanic(instance, "Silence Ward", PALE_VIOLET, Material.AMETHYST_CLUSTER,
+                "Cantor", EntityType.EVOKER,
+                configDouble("silence-cantor-health", 45.0),
+                configDouble("silence-ward-radius", 10.0),
+                configDouble("silence-smothered-multiplier", 0.3),
+                configInt("silence-respawn-delay-ticks", 160),
+                configDouble("silence-placement-fraction", 0.45));
+    }
+
+    /**
+     * Discordant Verse: its signature. Heads take turns singing, each with a loud wind-up, and whoever
+     * is facing the singer when it lands takes the whole verse. Turning away is always enough and
+     * always costs you sight of everything else happening.
+     */
+    private PhaseMechanic discordantVerse(BossInstance instance) {
+        return new GazeMechanic(instance, "Discordant Verse", PALE_VIOLET, Material.SCULK_SHRIEKER,
+                configInt("verse-head-count", 4),
+                configInt("verse-charge-ticks", 60),
+                configInt("verse-sing-ticks", 12),
+                configInt("verse-rest-ticks", 50),
+                configDouble("verse-damage", 20.0),
+                configDouble("verse-range", 26.0),
+                configDouble("verse-placement-fraction", 0.6));
+    }
+
+    /**
+     * Vex Round: shards lit in a cued order, and a wrong strike throws the whole sequence away and
+     * costs the group health. Blunted rather than immune while the round stands, so it can never lock.
+     */
+    private PhaseMechanic vexRound(BossInstance instance) {
+        return new OrderedTargetsMechanic(instance, "Vex Round", "Shield Shard", PALE_VIOLET,
+                Material.AMETHYST_SHARD,
+                configInt("vex-round-count", 4),
+                configDouble("vex-round-health", 28.0),
+                configInt("vex-round-window-ticks", 300),
+                configInt("vex-round-restart-delay-ticks", 110),
+                configDouble("vex-round-wrong-order-damage", 11.0),
+                configDouble("vex-round-timeout-damage", 26.0),
+                configDouble("vex-round-exposed-multiplier", 2.2),
+                configInt("vex-round-exposed-ticks", 160),
+                configInt("vex-round-stagger-ticks", 55),
+                configDouble("vex-round-placement-fraction", 0.55));
+    }
+
+    /** Offset from its phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new BeaconEvent(plugin, id(), new double[] {0.86, 0.30}),
+                new ConvergenceNukeEvent(plugin, id(), new double[] {0.60, 0.24},
+                        "FULL CHORUS", "Every voice at once — get out of its reach"));
     }
 
     @Override

@@ -4,9 +4,14 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.BeaconEvent;
+import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.ChainTagMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.GroundingRodsMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BallLightningAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.ChainLightningAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.GalePushAttack;
@@ -16,6 +21,7 @@ import dev.rbm72.weaponsplugin.boss.bosses.attacks.StormcallAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.ThunderstormAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.ThunderstrikeAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.TornadoAttack;
+import dev.rbm72.weaponsplugin.boss.gates.Gates;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.weapons.TempestMaul;
 import net.kyori.adventure.text.Component;
@@ -65,26 +71,30 @@ public final class StormTyrant extends Boss {
         ChainOfJudgmentAttack chainOfJudgment = new ChainOfJudgmentAttack(plugin);
 
         this.phases = List.of(
-                new BossPhase("Phase 1", 1.0,
+                // Grounding Rods: his charge has to go somewhere. Split up and earth it through
+                // yourselves, or leave a rod empty and it earths through the whole room instead. He is
+                // hittable the entire time — the phase is about how many people you can spare.
+                new BossPhase("Grounding Rods", 1.0,
                         List.of(chainLightning, thunderstrike, galePush, lightningRods),
                         false, StormTyrant::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Storm Conduits", NamedTextColor.YELLOW),
-                                Material.LIGHTNING_ROD, STORM_YELLOW, 0, false)),
+                        this::groundingRods),
+                // The eye of the storm is a real, moving patch of calm — the only ground his ward
+                // cannot cover. Hold it and he is hittable; leave it and he seals, wherever you stand.
                 new BossPhase("Eye of the Storm", 0.75,
                         List.of(tornado, ballLightning, chainLightning, thunderstrike),
                         false, StormTyrant::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Storm Conduits", NamedTextColor.YELLOW),
-                                Material.LIGHTNING_ROD, STORM_WHITE, 1, false)),
+                        Gates.controlZone(plugin, "storm_tyrant", "storm-eye", "THE EYE PASSES", STORM_YELLOW)),
+                // Chain Lightning Tag: a charge that hunts for the nearest body and grows with every
+                // body it finds. The inverse of the phase above — that one collapses the group onto one
+                // circle, this one makes standing together lethal.
                 new BossPhase("Wrath of the Sky", 0.40,
                         List.of(thunderstorm, galePush, ballLightning, tornado, chainOfJudgment),
                         false, StormTyrant::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Thunder Cores", NamedTextColor.GOLD),
-                                Material.COPPER_BLOCK, STORM_YELLOW, 2, false)),
+                        this::chainLightningTag),
+                // Ungated finish: the sky falls on you and there is nothing to solve, only to survive.
                 new BossPhase("Maelstrom of Wrath", 0.15,
                         List.of(chainLightning, thunderstrike, galePush, ballLightning, tornado, stormcall, chainOfJudgment),
-                        true, StormTyrant::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Eye of the Tempest", NamedTextColor.WHITE),
-                                Material.NETHER_STAR, STORM_WHITE, 3, true)));
+                        true, StormTyrant::onEnterEnrage));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new TempestMaul(plugin).createItem())
@@ -115,9 +125,59 @@ public final class StormTyrant extends Boss {
         return phases;
     }
 
+    /**
+     * The whole lightning kit was landing for far too little — every attack telegraphed hard and then
+     * barely dented anyone, so the fight read as loud but harmless. Tripled at the boss level rather
+     * than by editing each of the nine attacks' damage values, which keeps their relative weighting
+     * (Thunderstrike still hits harder than Gale Push) intact.
+     */
+    @Override
+    public double outgoingDamageMultiplier() {
+        return configDouble("damage-multiplier", 3.0);
+    }
+
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Grounding Rods: charged rods stand around the arena on a clock, and each one with somebody under
+     * it earths harmlessly through them. Every rod left empty dumps its charge into the whole room
+     * instead. The rod count follows the headcount, so it is always exactly solvable and never
+     * impossible alone.
+     */
+    private PhaseMechanic groundingRods(BossInstance instance) {
+        return new GroundingRodsMechanic(instance, "Grounding Rods", STORM_YELLOW, Material.LIGHTNING_ROD,
+                configInt("grounding-rods-max", 4),
+                configDouble("grounding-rods-radius", 3.5),
+                configInt("grounding-rods-charge-ticks", 180),
+                configDouble("grounding-rods-earthed-damage", 4.0),
+                configDouble("grounding-rods-unrouted-damage", 9.0),
+                configDouble("grounding-rods-placement-fraction", 0.6));
+    }
+
+    /**
+     * Chain Lightning Tag: a live charge that jumps to whoever is nearest and hits harder with every
+     * hop. It only dies when it cannot reach anyone, so the answer is to break the group apart and
+     * keep it apart while still fighting.
+     */
+    private PhaseMechanic chainLightningTag(BossInstance instance) {
+        return new ChainTagMechanic(instance, "Chain Lightning", STORM_WHITE,
+                configDouble("chain-tag-hop-range", 8.0),
+                configInt("chain-tag-hop-interval-ticks", 30),
+                configDouble("chain-tag-base-damage", 5.0),
+                configDouble("chain-tag-growth-per-hop", 4.0),
+                configInt("chain-tag-max-hops", 6),
+                configInt("chain-tag-respawn-ticks", 120));
+    }
+
+    /** Offset from his phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new HitCountShieldEvent(plugin, id(), new double[] {0.86, 0.30}),
+                new BeaconEvent(plugin, id(), new double[] {0.62, 0.24}));
     }
 
     @Override

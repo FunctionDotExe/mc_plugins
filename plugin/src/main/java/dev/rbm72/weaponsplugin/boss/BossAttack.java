@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.boss;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.entity.Player;
@@ -19,6 +20,8 @@ public abstract class BossAttack {
 
     private static final int MIN_TELEGRAPH_TICKS = 10;
     private static final int CAST_BAR_SEGMENTS = 10;
+    /** Slightly longer than the refresh gap, so a cast bar re-sent each tick never blinks between frames. */
+    private static final long CAST_BAR_HOLD_MS = 250;
 
     protected final WeaponsPlugin plugin;
     private final String bossId;
@@ -111,8 +114,10 @@ public abstract class BossAttack {
         Component bar = Component.text(name() + " ", NamedTextColor.YELLOW)
                 .append(Component.text("▰".repeat(filled), NamedTextColor.RED))
                 .append(Component.text("▱".repeat(CAST_BAR_SEGMENTS - filled), NamedTextColor.DARK_GRAY));
+        // Re-flashed every telegraph tick so the bar fills; PRIORITY_SUSTAINED keeps it from stomping
+        // a brief combat notice that lands mid-cast, which a raw sendActionBar per tick always did.
         for (Player player : Arena.playersNear(ctx.bossLocation(), ctx.arena().radius())) {
-            player.sendActionBar(bar);
+            plugin.actionBarHub().flash(player, bar, CAST_BAR_HOLD_MS, ActionBarHub.PRIORITY_SUSTAINED);
         }
     }
 
@@ -122,7 +127,7 @@ public abstract class BossAttack {
             return;
         }
         for (Player player : Arena.playersNear(ctx.bossLocation(), ctx.arena().radius())) {
-            player.sendActionBar(Component.empty());
+            plugin.actionBarHub().clearFlash(player, ActionBarHub.PRIORITY_SUSTAINED);
         }
     }
 

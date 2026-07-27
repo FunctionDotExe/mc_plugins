@@ -9,6 +9,7 @@ import org.bukkit.entity.ComplexEntityPart;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mob;
+import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.Collection;
@@ -75,34 +76,52 @@ public final class BossManager {
         }
 
         LivingEntity entity = (LivingEntity) world.spawnEntity(at, boss.baseEntityType());
-        entity.customName(boss.displayName());
-        entity.setCustomNameVisible(true);
-        entity.setPersistent(true);
-        if (entity instanceof Mob mob) {
-            mob.setRemoveWhenFarAway(false);
-        }
-
-        Arena arena = new Arena(at, boss.arenaRadius());
-        int nearbyPlayers = Math.max(1, arena.playersInside().size());
-        double scale = Math.min(MAX_SCALE, MIN_SCALE + 0.5 * (nearbyPlayers - 1));
         boolean hardMode = hardModeIds.contains(boss.id());
-        double maxHealth = boss.maxHealth() * scale * (hardMode ? HARD_MODE_HEALTH_MULTIPLIER : 1.0);
-
-        AttributeInstance maxHealthAttr = entity.getAttribute(Attribute.MAX_HEALTH);
-        if (maxHealthAttr != null) {
-            maxHealthAttr.setBaseValue(maxHealth);
-        }
-        entity.setHealth(maxHealthAttr != null ? maxHealthAttr.getValue() : maxHealth);
 
         BossInstance instance;
+        double maxHealth;
+        int nearbyPlayers;
         try {
-            instance = new BossInstance(plugin, this, boss, entity, arena, maxHealth);
-        } catch (Exception e) {
+            entity.customName(boss.displayName());
+            entity.setCustomNameVisible(true);
+            entity.setPersistent(true);
+            if (entity instanceof Mob mob) {
+                mob.setRemoveWhenFarAway(false);
+            }
+
+            Arena arena = new Arena(at, boss.arenaRadius());
+            nearbyPlayers = Math.max(1, (int) arena.playersInside().stream().filter(Arena::isCombatant).count());
+            double scale = Math.min(MAX_SCALE, MIN_SCALE + 0.5 * (nearbyPlayers - 1));
+            maxHealth = boss.maxHealth() * scale * (hardMode ? HARD_MODE_HEALTH_MULTIPLIER : 1.0);
+
+            AttributeInstance maxHealthAttr = entity.getAttribute(Attribute.MAX_HEALTH);
+            if (maxHealthAttr != null) {
+                maxHealthAttr.setBaseValue(maxHealth);
+            }
+            entity.setHealth(maxHealthAttr != null ? maxHealthAttr.getValue() : maxHealth);
+
+            // Bumps every boss up to actual-boss size by default. Runs before BossInstance
+            // construction below, so a boss with its own deliberate size (set in its first phase's
+            // onEnter, e.g. AmalgamatedBulk/WeepingColossus/Voidwyrm) simply overrides this value.
+            AttributeInstance entityScaleAttr = entity.getAttribute(Attribute.SCALE);
+            if (entityScaleAttr != null) {
+                entityScaleAttr.setBaseValue(boss.baseScale());
+            }
+
             // Construction runs phase 1's onEnter synchronously (cinematics, hologram/WorldGuard
-            // hookup, entrance title). If any of that throws, the entity above is already spawned
-            // but was never registered into liveByBossId/liveByEntity — left alone, that's a
-            // permanently orphaned mob with no boss bar, no tick loop, and no way to /bossdespawn it
-            // (the manager has no record it exists). Remove it and fail the spawn cleanly instead.
+            // hookup, entrance title). Everything from entity setup through here is one unit: if any
+            // of it throws, the entity above is already spawned but was never registered into
+            // liveByBossId/liveByEntity — left alone, that's a permanently orphaned mob with no boss
+            // bar, no tick loop, and no way to /bossdespawn it (the manager has no record it exists).
+            // Remove it and fail the spawn cleanly instead of leaking the exception up to the command
+            // dispatcher as a generic "unexpected error".
+            instance = new BossInstance(plugin, this, boss, entity, arena, maxHealth);
+        } catch (Exception | LinkageError e) {
+            // LinkageError too, not just Exception: an optional integration (WorldGuard/DecentHolograms)
+            // that isn't installed can fail to *link* its classes when first touched during construction,
+            // which surfaces as NoClassDefFoundError (a LinkageError, not an Exception). Catching only
+            // Exception let that escape and leave a spawned-but-unregistered orphan mob — no boss bar, no
+            // tick loop, no way to despawn it. Treat a link failure exactly like any other spawn failure.
             plugin.getLogger().log(java.util.logging.Level.SEVERE,
                     "Boss '" + boss.id() + "' threw while starting its fight — removing the orphaned entity instead of leaving it stuck with no boss bar/despawn.", e);
             if (entity.isValid()) {
@@ -119,6 +138,16 @@ public final class BossManager {
         if (tickTask == null) {
             startTickLoop();
         }
+        // One line per spawn, deliberately at INFO. A boss that registers here is guaranteed to be
+        // ticking (boss bar, targeting, attacks); one that never logs never got this far. Both "no boss
+        // bar" reports so far were impossible to tell apart from reading code alone — this makes the
+        // difference visible in the log, along with the world and health it actually spawned with.
+        long loggedHealth = Math.round(maxHealth);
+        int loggedPlayers = nearbyPlayers;
+        plugin.getLogger().info(() -> "Boss '" + boss.id() + "' spawned in world '" + world.getName()
+                + "' at " + at.getBlockX() + "," + at.getBlockY() + "," + at.getBlockZ()
+                + " with " + loggedHealth + " HP (" + loggedPlayers + " player(s) in arena"
+                + (hardMode ? ", hard mode" : "") + ")");
         return Optional.of(instance);
     }
 
@@ -139,6 +168,24 @@ public final class BossManager {
     /** True if this boss id currently has a live fight — used by the boss menu to grey out an already-spawned entry. */
     public boolean isLive(String id) {
         return liveByBossId.containsKey(id.toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * True while this player is standing in a live boss fight, and therefore already spending two
+     * boss-bar slots on that fight (the health bar and the mechanic readout).
+     * <p>
+     * Exists so other systems can stand down from the boss-bar area during a fight. Minecraft stacks
+     * boss bars at a fixed vertical stride and draws each bar's <em>name above it</em>, so past about
+     * four bars the names start colliding with the bar above — which in play reads as the mechanic
+     * readout being unreadable at exactly the moment it matters most.
+     */
+    public boolean isInFight(Player player) {
+        for (BossInstance instance : liveByBossId.values()) {
+            if (instance.barViewers().contains(player)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

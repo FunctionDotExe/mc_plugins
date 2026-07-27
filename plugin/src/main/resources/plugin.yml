@@ -37,6 +37,17 @@ commands:
     description: Toggles hard mode for a boss (applies on its next spawn)
     usage: /bosshardmode <id>
     permission: weaponsplugin.boss.admin
+  bossparticles:
+    description: Sets the global boss particle volume multiplier (0.1-2.0)
+    usage: /bossparticles [scale]
+    permission: weaponsplugin.boss.admin
+  particles:
+    description: Sets your own personal weapon/boss particle volume (0-200%)
+    usage: /particles <weapon|boss> <0-200>
+  grief:
+    description: Toggles a server-wide kill switch on all boss grief (block breaking/explosions)
+    usage: /grief
+    permission: weaponsplugin.boss.admin
   hub:
     description: Opens the hub menu (ender chest & accessories)
     usage: /hub
@@ -55,6 +66,18 @@ commands:
   giveshield:
     description: Gives you a custom shield
     usage: /giveshield <id>
+    permission: weaponsplugin.give
+  givestone:
+    description: Gives you a custom movement stone
+    usage: /givestone <id>
+    permission: weaponsplugin.give
+  giveridable:
+    description: Gives you a custom ridable saddle
+    usage: /giveridable <id>
+    permission: weaponsplugin.give
+  giveconsumable:
+    description: Gives you a healing consumable
+    usage: /giveconsumable <id>
     permission: weaponsplugin.give
 
 permissions:

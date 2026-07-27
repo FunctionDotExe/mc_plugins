@@ -4,9 +4,9 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BindingSigilsAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.HealingAddsAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BlackSwordRainAttack;
@@ -25,6 +25,15 @@ import dev.rbm72.weaponsplugin.boss.bosses.attacks.SummonRoyalGuardsAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.SwordRainAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.TeleportStrikeAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.TripleComboAttack;
+import dev.rbm72.weaponsplugin.boss.events.BeaconEvent;
+import dev.rbm72.weaponsplugin.boss.events.CourtJudgmentEvent;
+import dev.rbm72.weaponsplugin.boss.events.CursedCoinTossEvent;
+import dev.rbm72.weaponsplugin.boss.events.WardplateAuctionEvent;
+import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.DuelLockMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.EmpoweringAddsMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.RegicideMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.WrathMeterMechanic;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.weapons.KingsJudgment;
 import net.kyori.adventure.text.Component;
@@ -53,6 +62,14 @@ import java.util.concurrent.ThreadLocalRandom;
  * "enrage under 15%" rule.
  */
 public final class FallenKing extends Boss {
+
+    /**
+     * The king's wardplates were reforming faster than the fight could breathe — the exposed window
+     * would close and the next set was already standing, so the encounter read as one unbroken
+     * "break plates" loop with no stretch of open melee in between. Well above the framework default
+     * on purpose; this is the boss the pacing complaint was actually about.
+     */
+    private static final double WARDPLATE_REFORM_SCALE = 1.6;
 
     private final List<BossPhase> phases;
     private final LootTable lootTable;
@@ -84,31 +101,54 @@ public final class FallenKing extends Boss {
                 EntityType.EVOKER, KING_GOLD);
 
         this.phases = List.of(
-                new BossPhase("Phase 1", 1.0,
+                // He is a king, so he duels. Only the opponent he names can touch him; everyone else
+                // handles the adds and stays alive until the mantle passes to them.
+                new BossPhase("The Duel", 1.0,
                         List.of(heavySwing, tripleCombo, dashSlash, shockwaveSlam, summonRoyalGuards, siegeHurl,
                                 environmentalHazard),
                         false, FallenKing::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Royal Wardplates", NamedTextColor.GOLD),
-                                Material.SHIELD, KING_GOLD, 0, false)),
-                new BossPhase("Armor Shattered", 0.75,
+                        instance -> new DuelLockMechanic(instance, KING_GOLD,
+                                configDouble("duel-rotate-below-health", 0.4),
+                                configInt("duel-max-ticks", 600),
+                                configDouble("duel-outsider-damage-fraction", 0.0))),
+                // Broken Oath: he is hittable throughout, but his clerics mend him faster than a
+                // careless group can cut. Kill them or out-race them — both are real answers, and the
+                // choice of where to spend damage is the phase.
+                new BossPhase("Broken Oath", 0.75,
                         List.of(spinningSlash, swordRain, groundFissure, jumpSlam, royalClerics),
                         false, FallenKing::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Royal Wardplates", NamedTextColor.GOLD),
-                                Material.SHIELD, KING_GOLD, 1, false)),
-                new BossPhase("Dark Awakening", 0.40,
+                        instance -> new EmpoweringAddsMechanic(instance,
+                                Component.text("Royal Cleric", NamedTextColor.GRAY), KING_GOLD,
+                                EntityType.EVOKER,
+                                configInt("cleric-count", 3),
+                                configDouble("cleric-health", 24.0),
+                                configDouble("cleric-heal-per-second", 4.0),
+                                configDouble("cleric-damage-reduction-each", 0.25),
+                                configInt("cleric-respawn-delay-ticks", 300))),
+                // The Crown's Weight: still no lockout, but damage feeds his fury and filling it wipes
+                // the arena. The only phase in the game where the right move is sometimes to stop
+                // swinging — a group running on "burst the window" reflexes will detonate it twice
+                // before working that out.
+                new BossPhase("The Crown's Weight", 0.40,
                         List.of(bindingSigils, blackSwordRain, darkExplosion, teleportStrike, royalGuard),
                         false, FallenKing::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Corrupted Regalia", NamedTextColor.DARK_PURPLE),
-                                Material.NETHERITE_INGOT, KING_SHADOW, 2, false)),
-                // Summon attacks are deliberately excluded here — enrage is meant to be constant
-                // melee/AoE pressure from the king himself, not more adds to manage.
-                new BossPhase("Enraged", 0.15,
+                        instance -> new WrathMeterMechanic(instance, KING_SHADOW,
+                                configDouble("wrath-cap", 220.0),
+                                configDouble("wrath-decay-per-second", 12.0),
+                                configDouble("wrath-nova-damage", 16.0),
+                                configDouble("wrath-nova-radius", 14.0),
+                                configInt("wrath-calm-ticks", 120))),
+                // Last Stand: health stops being the win condition. He cannot die on the dais, so the
+                // finish is about driving him off it and holding him there, not about more damage.
+                // Summon attacks stay excluded — this is the king himself, at close range.
+                new BossPhase("Last Stand", 0.15,
                         List.of(heavySwing, tripleCombo, dashSlash, shockwaveSlam, spinningSlash, swordRain,
                                 groundFissure, jumpSlam, blackSwordRain, darkExplosion, teleportStrike, enrageSlash,
                                 siegeHurl, royalGuard, environmentalHazard),
                         true, FallenKing::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Heart of the Crown", NamedTextColor.RED),
-                                Material.NETHER_STAR, KING_SHADOW, 3, true)));
+                        instance -> new RegicideMechanic(instance, KING_SHADOW,
+                                configDouble("throne-radius", 7.0),
+                                configDouble("throne-reclaim-pull", 0.06))));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new KingsJudgment(plugin).createItem())
@@ -142,6 +182,21 @@ public final class FallenKing extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Two scripted interruptions layered over the phase structure, deliberately offset from the phase
+     * boundaries (0.75 / 0.40 / 0.15) so they land mid-phase and break up a settled rhythm rather than
+     * piling onto a transition that is already busy with a title and a cinematic.
+     */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new HitCountShieldEvent(plugin, id(), new double[] {0.88, 0.28}),
+                new CourtJudgmentEvent(plugin, id(), new double[] {0.66, 0.34}),
+                new WardplateAuctionEvent(plugin, id(), new double[] {0.80, 0.50}),
+                new CursedCoinTossEvent(plugin, id(), new double[] {0.58, 0.22}),
+                new BeaconEvent(plugin, id(), new double[] {0.42}));
     }
 
     @Override

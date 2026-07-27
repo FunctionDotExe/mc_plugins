@@ -97,7 +97,7 @@ public final class ChainOfJudgmentAttack extends BossAttack {
                         }
 
                         private void strike() {
-                            List<Player> nearby = Arena.playersNear(bossLoc, radius);
+                            List<Player> nearby = Arena.combatants(bossLoc, radius);
                             if (nearby.isEmpty()) {
                                 return;
                             }

@@ -109,7 +109,7 @@ public final class MirrorOfTheDamnedAttack extends BossAttack {
     private void onMirrorStruck(AttackContext ctx, AtomicInteger curses) {
         curses.incrementAndGet();
         Location loc = ctx.bossLocation();
-        for (Player player : Arena.playersNear(loc, ctx.arena().radius())) {
+        for (Player player : Arena.combatants(loc, ctx.arena().radius())) {
             player.addPotionEffect(new PotionEffect(PotionEffectType.WITHER, curseTicks, 0));
             player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, curseTicks, 1));
         }

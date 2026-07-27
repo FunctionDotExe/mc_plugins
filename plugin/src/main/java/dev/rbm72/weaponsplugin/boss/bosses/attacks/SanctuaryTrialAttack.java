@@ -101,7 +101,7 @@ public final class SanctuaryTrialAttack extends BossAttack {
                         }
 
                         private void resolve() {
-                            for (Player player : Arena.playersNear(center, radius)) {
+                            for (Player player : Arena.combatants(center, radius)) {
                                 boolean sheltered = wards.stream()
                                         .anyMatch(w -> w.distanceSquared(player.getLocation()) <= wardRadius * wardRadius);
                                 if (!sheltered) {

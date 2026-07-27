@@ -9,6 +9,7 @@ import dev.rbm72.weaponsplugin.boss.BossManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Weapon;
 import dev.rbm72.weaponsplugin.items.WeaponRegistry;
+import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Material;
@@ -32,6 +33,8 @@ public final class WeaponDamageListener implements Listener {
 
     /** Every Nth hit in a combo streak lands a bonus-damage finisher and refunds ability1's cooldown. */
     private static final int FINISHER_INTERVAL = 5;
+    /** How long a combat notice owns the action bar before the merged cooldown line comes back. */
+    private static final long COMBAT_NOTICE_MS = 1200;
     private static final double FINISHER_DAMAGE_MULTIPLIER = 1.4;
 
     private final WeaponsPlugin plugin;
@@ -81,7 +84,8 @@ public final class WeaponDamageListener implements Listener {
         Fx.damageNumber(plugin, victim.getEyeLocation(), event.getDamage(), crit, execute);
 
         if (comboStreak > 0 && comboStreak % FINISHER_INTERVAL == 0) {
-            attacker.sendActionBar(Component.text("COMBO x" + comboStreak + "!", NamedTextColor.GOLD));
+            plugin.actionBarHub().flash(attacker, Component.text("COMBO x" + comboStreak + "!", NamedTextColor.GOLD),
+                    COMBAT_NOTICE_MS, ActionBarHub.PRIORITY_NOTICE);
         }
 
         if (victim.getHealth() - event.getFinalDamage() <= 0) {
@@ -147,7 +151,9 @@ public final class WeaponDamageListener implements Listener {
                 () -> {
                     if (victim instanceof Player blockingPlayer && blockingPlayer.isBlocking()) {
                         blockingPlayer.setCooldown(Material.SHIELD, staggerTicks);
-                        blockingPlayer.sendActionBar(Component.text("Guard Broken!", NamedTextColor.RED));
+                        plugin.actionBarHub().flash(blockingPlayer,
+                                Component.text("Guard Broken!", NamedTextColor.RED),
+                                COMBAT_NOTICE_MS, ActionBarHub.PRIORITY_NOTICE);
                     }
                 });
     }

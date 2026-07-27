@@ -267,3 +267,6 @@ attacks):
 2. **Bosses 2–10** — one task each (boss class + ~12–14 attacks + new weapon + config + register).
    Independent; order by ascending risk (grounded melee bosses before Dragon Elder's flight).
 3. **The Worldender** — 8-phase capstone reusing the finished bosses' attack classes + Apotheosis.
+
+
+

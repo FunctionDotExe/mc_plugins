@@ -4,9 +4,20 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.ConvergenceNukeEvent;
+import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
+import dev.rbm72.weaponsplugin.boss.events.LineOfSightEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.ChainTagMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.ContagionLedgerMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.DecoyMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.DeepSilenceMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.ExpandingRingMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.GroundingRodsMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.ShrinkingFloesMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.AbsoluteZeroAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BlinkStrikeAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BlizzardAttack;
@@ -108,46 +119,51 @@ public final class Worldender extends Boss {
         MarkedTargetTrialAttack markedTarget = new MarkedTargetTrialAttack(plugin, "worldender");
 
         this.phases = List.of(
+                // Resonance Cascade: one of its own three mechanics. A shriek that jumps to whoever is
+                // nearest and grows with every jump, so the fight opens by forbidding the group's
+                // default resting shape — a clump at its feet.
                 new BossPhase("Awakening", 1.0,
                         List.of(sonicBoom, voidSlam, dashSlash),
                         false, Worldender::onEnterAwakening,
-                        VulnerabilitySpec.scaled(Component.text("Warden Nodes", NamedTextColor.DARK_PURPLE),
-                                Material.SCULK_CATALYST, VOID_PURPLE, 0, false)),
+                        this::resonanceCascade),
+                // From here it is an amalgamation, replaying the roster's signatures in order. Frost
+                // Queen's breaking floes.
                 new BossPhase("Frostbound", 0.87,
                         List.of(blizzard, glacierSpikes, absoluteZero, sanctuaryTrial),
                         false, Worldender::onEnterFrostbound,
-                        VulnerabilitySpec.scaled(Component.text("Frost Nodes", NamedTextColor.AQUA),
-                                Material.BLUE_ICE, FROST, 1, false)),
+                        this::frostboundFloes),
+                // Storm Tyrant's grounding rods.
                 new BossPhase("Stormforged", 0.75,
                         List.of(thunderstrike, tornado, stormcall, gazeTrial),
                         false, Worldender::onEnterStormforged,
-                        VulnerabilitySpec.scaled(Component.text("Storm Nodes", NamedTextColor.YELLOW),
-                                Material.LIGHTNING_ROD, STORM, 2, false)),
+                        this::stormforgedRods),
+                // Inferno Warlord's expanding moat.
                 new BossPhase("Infernal", 0.62,
                         List.of(meteorRain, fireTrail, firestorm),
                         false, Worldender::onEnterInfernal,
-                        VulnerabilitySpec.scaled(Component.text("Inferno Nodes", NamedTextColor.GOLD),
-                                Material.MAGMA_BLOCK, INFERNO, 3, false)),
+                        this::infernalMoat),
+                // Plague Warden's ledger.
                 new BossPhase("Plaguebound", 0.50,
                         List.of(corruptionSpread, summonUndead, soulDrain),
                         false, Worldender::onEnterPlaguebound,
-                        VulnerabilitySpec.scaled(Component.text("Plague Nodes", NamedTextColor.DARK_GREEN),
-                                Material.SPORE_BLOSSOM, PLAGUE, 3, false)),
+                        this::plagueboundLedger),
+                // Void Sovereign's reflections.
                 new BossPhase("Voidtouched", 0.37,
                         List.of(voidRift, singularity, blinkStrike, markedTarget),
                         false, Worldender::onEnterVoidtouched,
-                        VulnerabilitySpec.scaled(Component.text("Void Nodes", NamedTextColor.LIGHT_PURPLE),
-                                Material.ECHO_SHARD, VOID_PURPLE, 3, false)),
+                        this::voidtouchedReflections),
+                // Ungated, and the only place in eight phases the group gets one: everything it has
+                // learned, with nothing new to solve. The palate cleanser before the end.
                 new BossPhase("Cataclysm", 0.25,
                         List.of(meteorRain, thunderstrike, absoluteZero, voidRift, sanctuaryTrial, gazeTrial),
-                        false, Worldender::onEnterCataclysm,
-                        VulnerabilitySpec.scaled(Component.text("Cataclysm Nodes", NamedTextColor.RED),
-                                Material.NETHERITE_SCRAP, UNMAKING, 3, false)),
+                        false, Worldender::onEnterCataclysm),
+                // The Deep Silence: its last mechanic, and the roster's payoff. The lights go out, the
+                // fight stops making noise, and a single expanding pulse on the floor is the only
+                // warning anyone gets.
                 new BossPhase("The Unmaking", 0.12,
                         List.of(finale, supernova, collapse, stormcall, firestorm, sanctuaryTrial, gazeTrial, markedTarget),
                         true, Worldender::onEnterUnmaking,
-                        VulnerabilitySpec.scaled(Component.text("Core Fragments", NamedTextColor.DARK_RED),
-                                Material.NETHER_STAR, UNMAKING, 3, true)));
+                        this::theDeepSilence));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Apotheosis(plugin).createItem())
@@ -179,7 +195,17 @@ public final class Worldender extends Boss {
 
     @Override
     public double arenaRadius() {
-        return configDouble("arena-radius", 25.0);
+        return configDouble("arena-radius", 45.0);
+    }
+
+    /**
+     * Twice the framework default. This is the eight-phase final boss and it was standing the same
+     * height as every four-phase boss in the roster — a warden-sized silhouette for something meant
+     * to read as the thing that ends the world. Enrage still multiplies on top of this.
+     */
+    @Override
+    public double baseScale() {
+        return configDouble("scale", 3.0);
     }
 
     @Override
@@ -190,6 +216,109 @@ public final class Worldender extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Resonance Cascade: a shriek that chains between players standing too close and hits harder with
+     * every hop. It only dies when it cannot reach anyone, so the opening phase is a standing order to
+     * spread out and stay spread out.
+     */
+    private PhaseMechanic resonanceCascade(BossInstance instance) {
+        return new ChainTagMechanic(instance, "Resonance Cascade", UNMAKING,
+                configDouble("resonance-hop-range", 9.0),
+                configInt("resonance-hop-interval-ticks", 26),
+                configDouble("resonance-base-damage", 7.0),
+                configDouble("resonance-growth-per-hop", 6.0),
+                configInt("resonance-max-hops", 7),
+                configInt("resonance-respawn-ticks", 100));
+    }
+
+    /** Frost Queen's Thin Ice, replayed. */
+    private PhaseMechanic frostboundFloes(BossInstance instance) {
+        return new ShrinkingFloesMechanic(instance, "Thin Ice", FROST,
+                configInt("frostbound-floe-count", 3),
+                configDouble("frostbound-start-radius", 7.0),
+                configDouble("frostbound-end-radius", 2.8),
+                configInt("frostbound-cycle-ticks", 200),
+                configDouble("frostbound-plunge-damage", 18.0),
+                configInt("frostbound-freeze-ticks", 60),
+                configDouble("frostbound-placement-fraction", 0.55));
+    }
+
+    /** Storm Tyrant's Grounding Rods, replayed. */
+    private PhaseMechanic stormforgedRods(BossInstance instance) {
+        return new GroundingRodsMechanic(instance, "Grounding Rods", STORM, Material.LIGHTNING_ROD,
+                configInt("stormforged-rods-max", 4),
+                configDouble("stormforged-rods-radius", 3.5),
+                configInt("stormforged-charge-ticks", 160),
+                configDouble("stormforged-earthed-damage", 5.0),
+                configDouble("stormforged-unrouted-damage", 11.0),
+                configDouble("stormforged-placement-fraction", 0.6));
+    }
+
+    /** Inferno Warlord's Moat Eruption, replayed. */
+    private PhaseMechanic infernalMoat(BossInstance instance) {
+        return new ExpandingRingMechanic(instance, "Moat Eruption", INFERNO,
+                configInt("infernal-wave-interval-ticks", 140),
+                configDouble("infernal-wave-speed", 0.45),
+                configDouble("infernal-band-thickness", 2.6),
+                configInt("infernal-starting-gaps", 4),
+                configInt("infernal-minimum-gaps", 2),
+                configDouble("infernal-gap-half-width-degrees", 18.0),
+                configDouble("infernal-gap-drift-degrees-per-second", 16.0),
+                configDouble("infernal-wave-damage", 16.0),
+                configInt("infernal-burn-ticks", 40));
+    }
+
+    /** Plague Warden's Contagion Ledger, replayed. */
+    private PhaseMechanic plagueboundLedger(BossInstance instance) {
+        return new ContagionLedgerMechanic(instance, PLAGUE,
+                configDouble("plaguebound-stacks-per-damage", 1.0),
+                configDouble("plaguebound-decay-per-second", 9.0),
+                configDouble("plaguebound-ledger-cap", 320.0),
+                configDouble("plaguebound-burst-base-damage", 5.0),
+                configDouble("plaguebound-burst-damage-per-stack", 0.16),
+                configInt("plaguebound-sickness-ticks", 100),
+                configDouble("plaguebound-heal-per-stack", 0.05));
+    }
+
+    /** Void Sovereign's Mirrorflesh, replayed. */
+    private PhaseMechanic voidtouchedReflections(BossInstance instance) {
+        return new DecoyMechanic(instance, "Mirrorflesh", VOID_PURPLE, EntityType.WARDEN,
+                configInt("voidtouched-decoys", 3),
+                configInt("voidtouched-shuffle-ticks", 110),
+                configDouble("voidtouched-blink-distance", 20.0),
+                configDouble("voidtouched-blink-damage", 9.0),
+                configDouble("voidtouched-spawn-radius", 6.0),
+                configInt("voidtouched-refresh-ticks", 400));
+    }
+
+    /**
+     * The Deep Silence: its last mechanic and the roster's payoff. Darkness plus a fight that stops
+     * telegraphing with sound — every other boss doubles its cues, and this one takes half of them
+     * away. Deliberately not blinding, so the pulse on the floor is always readable.
+     */
+    private PhaseMechanic theDeepSilence(BossInstance instance) {
+        return new DeepSilenceMechanic(instance, "The Deep Silence", UNMAKING,
+                configInt("silence-pulse-interval-ticks", 130),
+                configInt("silence-telegraph-ticks", 45),
+                configDouble("silence-safe-radius", 11.0),
+                configDouble("silence-pulse-damage", 26.0));
+    }
+
+    /**
+     * Three interruptions layered over eight phases, every milestone offset from the phase boundaries
+     * (0.87 / 0.75 / 0.62 / 0.50 / 0.37 / 0.25 / 0.12) so none of them lands on a transition that is
+     * already busy with a title and a cinematic.
+     */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new HitCountShieldEvent(plugin, id(), new double[] {0.93, 0.55}),
+                new LineOfSightEvent(plugin, id(), new double[] {0.68, 0.30},
+                        "TOTAL ECLIPSE", "Break line of sight — nothing else will save you"),
+                new ConvergenceNukeEvent(plugin, id(), new double[] {0.44, 0.18},
+                        "THE UNMAKING GATHERS", "Get away from it — all of you"));
     }
 
     @Override

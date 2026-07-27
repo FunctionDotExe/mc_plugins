@@ -174,7 +174,7 @@ public final class RoyalGuardStandAttack extends BossAttack {
                             ctx.boss().setHealth(Math.min(cap, ctx.boss().getHealth() + failHealBurst));
                             Fx.coloredBurst(loc.clone().add(0, 1, 0), GOLD, 2.0f, 45, 0.7);
                             Fx.sound(loc, Sound.ENTITY_WITHER_SPAWN, 1.0f, 0.9f);
-                            for (Player player : Arena.playersNear(loc, ctx.arena().radius())) {
+                            for (Player player : Arena.combatants(loc, ctx.arena().radius())) {
                                 if (player.getLocation().distanceSquared(loc) <= 64.0) {
                                     Vector push = player.getLocation().toVector().subtract(loc.toVector());
                                     push = push.lengthSquared() > 1.0E-6 ? push.normalize() : new Vector(1, 0, 0);

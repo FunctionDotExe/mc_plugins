@@ -4,9 +4,17 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.ConvergenceNukeEvent;
+import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.DriftingDiscField;
+import dev.rbm72.weaponsplugin.boss.mechanics.FloodingFloorMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.ForceFieldMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.MechanicField;
+import dev.rbm72.weaponsplugin.boss.mechanics.TrappedAlliesMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BubbleTrapAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.HealingAddsAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.IceShardAttack;
@@ -63,31 +71,33 @@ public final class TideLeviathan extends Boss {
         TsunamiAttack tsunami = new TsunamiAttack(plugin);
         IceShardAttack iceShard = new IceShardAttack(plugin);
         MaelstromAttack maelstrom = new MaelstromAttack(plugin);
-        UndertowAttack undertow = new UndertowAttack(plugin);
+        UndertowAttack undertowAttack = new UndertowAttack(plugin);
         HealingAddsAttack abyssalPriests = new HealingAddsAttack(plugin, "tide_leviathan", "Abyssal Priest",
                 EntityType.DROWNED, TEAL);
 
         this.phases = List.of(
-                new BossPhase("Phase 1", 1.0,
+                // Undertow: a permanent riptide toward the middle, broken only by the air pockets that
+                // drift across the arena. You are never blocked, only ever losing ground.
+                new BossPhase("Undertow", 1.0,
                         List.of(waterJet, whirlpool, tidalSurge, tridentThrow),
                         false, TideLeviathan::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Coral Wardshells", NamedTextColor.DARK_AQUA),
-                                Material.PRISMARINE_SHARD, TEAL, 0, false)),
+                        this::undertow),
+                // The water comes up and keeps coming up. The terrain finally matters: the one ridge
+                // nobody looked at is now the most valuable ground in the fight.
                 new BossPhase("The Depths Rise", 0.75,
                         List.of(bubbleTrap, tsunami, waterJet, whirlpool, abyssalPriests),
                         false, TideLeviathan::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Coral Wardshells", NamedTextColor.DARK_AQUA),
-                                Material.PRISMARINE_SHARD, PALE, 1, false)),
+                        this::risingTide),
+                // Ungated: the abyss stops being clever and simply tries to kill you. Pure race.
                 new BossPhase("Abyssal Wrath", 0.40,
-                        List.of(iceShard, tidalSurge, tsunami, bubbleTrap, undertow),
-                        false, TideLeviathan::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Abyssal Cores", NamedTextColor.BLUE),
-                                Material.DARK_PRISMARINE, DEEP_TEAL, 2, false)),
+                        List.of(iceShard, tidalSurge, tsunami, bubbleTrap, undertowAttack),
+                        false, TideLeviathan::onEnterPhase3),
+                // Bubble Prison: it drowns your people one at a time while it keeps fighting, so every
+                // second spent cutting someone out is damage the group is choosing not to deal.
                 new BossPhase("Maelstrom", 0.15,
-                        List.of(waterJet, whirlpool, tidalSurge, tsunami, iceShard, maelstrom, undertow),
+                        List.of(waterJet, whirlpool, tidalSurge, tsunami, iceShard, maelstrom, undertowAttack),
                         true, TideLeviathan::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Heart of the Deep", NamedTextColor.AQUA),
-                                Material.HEART_OF_THE_SEA, TEAL, 3, true)));
+                        this::bubblePrison));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new MaelstromTrident(plugin).createItem())
@@ -122,6 +132,67 @@ public final class TideLeviathan extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Undertow: a standing inward current for the whole band, with a drowning core at the middle and
+     * drifting air pockets as the only places the pull does not reach. Being anchored is always
+     * available and always costs the ground you would rather be fighting from.
+     */
+    private PhaseMechanic undertow(BossInstance instance) {
+        MechanicField airPockets = new DriftingDiscField(
+                configInt("undertow-pockets", 2),
+                configDouble("undertow-pocket-radius", 4.0),
+                configDouble("undertow-pocket-drift", 2.4),
+                PALE,
+                configDouble("undertow-pocket-spread", 0.55));
+        return new ForceFieldMechanic(instance, "Undertow", DEEP_TEAL,
+                ForceFieldMechanic.Direction.INWARD, ForceFieldMechanic.Focus.ARENA_CENTRE,
+                configDouble("undertow-pull-per-tick", 0.05),
+                configDouble("undertow-core-radius", 5.5),
+                configDouble("undertow-core-damage-per-second", 7.0),
+                airPockets);
+    }
+
+    /**
+     * Rising Tide: the waterline climbs, drowns everything under it, peaks and drains. It costs the
+     * group the floor rather than their health, which is what makes the arena's terrain suddenly the
+     * most important thing in the fight.
+     */
+    private PhaseMechanic risingTide(BossInstance instance) {
+        return new FloodingFloorMechanic(instance, "Rising Tide", TEAL,
+                configDouble("tide-rise-per-second", 0.28),
+                configDouble("tide-max-rise", 5.0),
+                configInt("tide-peak-hold-ticks", 90),
+                configInt("tide-drained-pause-ticks", 80),
+                configDouble("tide-drown-damage-per-second", 5.0),
+                true);
+    }
+
+    /**
+     * Bubble Prison: it drowns one of you at a time on a visible clock while it keeps fighting, so
+     * the rescue is always a trade against damage rather than a pause in the encounter.
+     */
+    private PhaseMechanic bubblePrison(BossInstance instance) {
+        return new TrappedAlliesMechanic(instance, "BUBBLE PRISON", PALE, Material.PRISMARINE,
+                Sound.ENTITY_FISHING_BOBBER_SPLASH,
+                configInt("bubble-prison-captives", 1),
+                configInt("bubble-prison-first-delay-ticks", 80),
+                configInt("bubble-prison-recapture-delay-ticks", 120),
+                configInt("bubble-prison-drown-ticks", 150),
+                configInt("bubble-prison-rescue-ticks", 60),
+                configDouble("bubble-prison-drain-per-second", 2.2),
+                configDouble("bubble-prison-fail-damage", 24.0),
+                configDouble("bubble-prison-fail-heal", 25.0));
+    }
+
+    /** Offset from its phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new HitCountShieldEvent(plugin, id(), new double[] {0.86, 0.34}),
+                new ConvergenceNukeEvent(plugin, id(), new double[] {0.62, 0.28},
+                        "RIPTIDE SLAM", "Get to the edge — the whole basin is about to move"));
     }
 
     @Override

@@ -4,9 +4,15 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.BeaconEvent;
+import dev.rbm72.weaponsplugin.boss.events.SpreadCheckEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.HazardPatchMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.ParasiteAddMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.RegeneratingShieldMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BlazeGraftAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.EndermanGraftAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.FrenziedGraftAttack;
@@ -28,6 +34,7 @@ import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.potion.PotionEffectType;
 
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -59,26 +66,28 @@ public final class GraftedHorror extends Boss {
         FrenziedGraftAttack frenziedGraft = new FrenziedGraftAttack(plugin);
 
         this.phases = List.of(
+                // Toxic Graft: the graft weeps across the floor and anything standing in it rots. It
+                // denies ground rather than dealing real damage, so the ask is to keep giving way.
                 new BossPhase("The First Graft", 1.0,
                         List.of(rendingClaw, spiderGraft),
                         false, GraftedHorror::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Grafted Plates", NamedTextColor.GOLD),
-                                Material.BONE, RUST, 0, false)),
+                        this::toxicGraft),
+                // Ungated: no mechanic, just the menagerie. Its one stretch of straight fighting.
                 new BossPhase("Marrow Ignition", 0.75,
                         List.of(rendingClaw, spiderGraft, blazeGraft),
-                        false, GraftedHorror::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Fused Carapace", NamedTextColor.GOLD),
-                                Material.BLAZE_ROD, EMBER, 1, false)),
+                        false, GraftedHorror::onEnterPhase2),
+                // Suture Shield: its signature. The shield knits faster than a heavy weapon can cut, so
+                // the phase is decided by how many blows a group can land per second, not how hard.
                 new BossPhase("Wither Sinew", 0.40,
                         List.of(rendingClaw, spiderGraft, blazeGraft, witherGraft, endermanGraft),
                         false, GraftedHorror::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Sinew Knots", NamedTextColor.DARK_GRAY),
-                                Material.WITHER_SKELETON_SKULL, DECAY_GREY, 2, false)),
+                        this::sutureShield),
+                // Limb Detachment: a piece of it breaks off and has to be put down before it crawls
+                // home. Late roster, so letting it reattach hardens the horror permanently.
                 new BossPhase("Full Metamorphosis", 0.15,
                         List.of(rendingClaw, spiderGraft, blazeGraft, witherGraft, endermanGraft, frenziedGraft),
                         true, GraftedHorror::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Core of the Menagerie", NamedTextColor.RED),
-                                Material.NETHER_STAR, Color.fromRGB(180, 20, 20), 3, true)));
+                        this::limbDetachment));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Spinelash(plugin).createItem())
@@ -112,6 +121,67 @@ public final class GraftedHorror extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Toxic Graft: weeping patches spread across the floor and wither anything standing in them. The
+     * tick damage is deliberately survivable — being boxed in by patches you ignored for twenty
+     * seconds is the real failure, not any single one of them.
+     */
+    private PhaseMechanic toxicGraft(BossInstance instance) {
+        return new HazardPatchMechanic(instance, "Toxic Graft", SICKLY_GREEN, Particle.SNEEZE,
+                configInt("graft-spawn-interval-ticks", 80),
+                configInt("graft-max-patches", 6),
+                configDouble("graft-start-radius", 2.4),
+                configDouble("graft-max-radius", 4.6),
+                configDouble("graft-growth-per-second", 0.22),
+                configInt("graft-lifetime-ticks", 300),
+                configDouble("graft-damage-per-second", 2.5),
+                PotionEffectType.WITHER, 0,
+                configDouble("graft-placement-fraction", 0.75));
+    }
+
+    /**
+     * Suture Shield: its signature. Every blow severs a fixed slice of the shield regardless of how
+     * hard it hit, and the shield knits back every second — so attack speed, not damage per swing,
+     * decides the phase. It never blocks outright, so a slow group still finishes.
+     */
+    private PhaseMechanic sutureShield(BossInstance instance) {
+        return new RegeneratingShieldMechanic(instance, "Suture Shield", RUST,
+                configDouble("suture-max-shield", 60.0),
+                configDouble("suture-regen-per-second", 7.0),
+                configDouble("suture-loss-per-hit", 4.0),
+                configDouble("suture-max-damage-reduction", 0.7),
+                configInt("suture-severed-ticks", 150),
+                configDouble("suture-exposed-multiplier", 2.0),
+                configInt("suture-stagger-ticks", 50));
+    }
+
+    /**
+     * Limb Detachment: an arm tears free and fights on its own. Kill it inside its window and the
+     * horror loses the mass for good; let it crawl back and it heals and permanently hardens.
+     */
+    private PhaseMechanic limbDetachment(BossInstance instance) {
+        return new ParasiteAddMechanic(instance, "Limb Detachment", "Severed Arm", DECAY_GREY,
+                EntityType.SPIDER,
+                configDouble("limb-health", 55.0),
+                false,
+                configInt("limb-window-ticks", 220),
+                configInt("limb-respawn-ticks", 150),
+                configDouble("limb-heal-per-second", 1.5),
+                0.0,
+                configDouble("limb-reattach-heal", 50.0),
+                configDouble("limb-reattach-hardening", 0.07),
+                configInt("limb-exposed-ticks", 150),
+                configDouble("limb-exposed-multiplier", 1.9));
+    }
+
+    /** Offset from its phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new BeaconEvent(plugin, id(), new double[] {0.86, 0.32}),
+                new SpreadCheckEvent(plugin, id(), new double[] {0.62, 0.24}));
     }
 
     @Override

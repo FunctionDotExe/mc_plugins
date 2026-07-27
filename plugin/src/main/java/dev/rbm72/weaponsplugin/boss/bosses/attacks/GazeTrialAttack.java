@@ -82,7 +82,7 @@ public final class GazeTrialAttack extends BossAttack {
                                 cancel();
                                 return;
                             }
-                            for (Player player : Arena.playersNear(ctx.bossLocation(), ctx.arena().radius())) {
+                            for (Player player : Arena.combatants(ctx.bossLocation(), ctx.arena().radius())) {
                                 float pitch = player.getLocation().getPitch();
                                 boolean compliant = lookUp ? pitch <= -pitchThreshold : pitch >= pitchThreshold;
                                 if (!compliant) {
@@ -96,7 +96,7 @@ public final class GazeTrialAttack extends BossAttack {
                         }
 
                         private void resolve() {
-                            for (Player player : Arena.playersNear(ctx.bossLocation(), ctx.arena().radius())) {
+                            for (Player player : Arena.combatants(ctx.bossLocation(), ctx.arena().radius())) {
                                 int bad = noncompliantTicks.getOrDefault(player.getUniqueId(), 0);
                                 if (bad >= durationTicks * noncomplianceFractionToPunish) {
                                     player.damage(punishDamage, ctx.boss());

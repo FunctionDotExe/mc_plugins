@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.util.TooltipFrame;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -68,42 +69,36 @@ public abstract class Shield {
                 .decoration(TextDecoration.ITALIC, false);
     }
 
-    /** Rarity-colored horizontal rule framing the tooltip's stat block and footer. */
-    private Component borderLine() {
-        return Component.text("▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬", rarity().color())
-                .decoration(TextDecoration.ITALIC, false);
-    }
-
     public final ItemStack createItem() {
         ItemStack item = new ItemStack(Material.SHIELD);
         ItemMeta meta = item.getItemMeta();
 
         meta.displayName(displayName());
 
-        List<Component> lore = new ArrayList<>();
-        lore.add(Component.empty());
-        lore.add(borderLine());
-        lore.add(Component.text("⛨ Block  ", NamedTextColor.GRAY)
+        List<Component> body = new ArrayList<>();
+        body.add(Component.text("⛨ Block  ", NamedTextColor.GRAY)
                 .decoration(TextDecoration.ITALIC, false)
                 .append(Component.text(String.format(Locale.ROOT, "-%.0f%% damage", blockDamageReduction() * 100), NamedTextColor.AQUA)
                         .decoration(TextDecoration.BOLD, true)));
-        lore.add(Component.text(" held right-click to raise", NamedTextColor.DARK_GRAY)
+        body.add(Component.text(" held right-click to raise", NamedTextColor.DARK_GRAY)
                 .decoration(TextDecoration.ITALIC, true));
-        lore.add(Component.empty());
-        lore.add(Component.text("❋ Parry", rarity().color())
+        body.add(Component.empty());
+        body.add(Component.text("❋ Parry", rarity().color())
                 .decoration(TextDecoration.BOLD, true)
                 .decoration(TextDecoration.ITALIC, false));
-        lore.add(Component.text(" first ", NamedTextColor.GRAY)
+        body.add(Component.text(" first ", NamedTextColor.GRAY)
                 .decoration(TextDecoration.ITALIC, false)
                 .append(Component.text(String.format(Locale.ROOT, "%.1fs", parryWindowMs() / 1000.0), NamedTextColor.AQUA))
                 .append(Component.text(" negates the hit and stuns the attacker", NamedTextColor.GRAY)));
 
+        String footerLabel = rarity().label().toUpperCase(Locale.ROOT) + " SHIELD";
+        int frameWidth = Math.max(TooltipFrame.widestLine(body), TooltipFrame.footerWidth(footerLabel));
+
+        List<Component> lore = new ArrayList<>();
         lore.add(Component.empty());
-        lore.add(borderLine());
-        lore.add(Component.text("◆ " + rarity().label().toUpperCase(Locale.ROOT) + " SHIELD ◆", rarity().color())
-                .decoration(TextDecoration.BOLD, true)
-                .decoration(TextDecoration.ITALIC, false));
-        lore.add(borderLine());
+        lore.addAll(body);
+        lore.add(Component.empty());
+        lore.add(TooltipFrame.footer(footerLabel, rarity().color(), frameWidth));
         meta.lore(lore);
 
         meta.setUnbreakable(true);

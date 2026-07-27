@@ -4,9 +4,15 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.ConvergenceNukeEvent;
+import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.EscalatingDoomMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.HowlConeMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.ThreeHeadsMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.DecayNovaAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.HealingAddsAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.SkullVolleyAttack;
@@ -53,26 +59,28 @@ public final class ThreefoldBane extends Boss {
                 EntityType.WITHER_SKELETON, DECAY_GREY);
 
         this.phases = List.of(
+                // Discord Howl: three roars on a stagger, and the seams where two of them overlap are
+                // what actually kills. It punishes the group's shape rather than any one player's feet.
                 new BossPhase("Awakening", 1.0,
                         List.of(skullVolley, decayNova),
                         false, ThreefoldBane::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Bone Plating", NamedTextColor.AQUA),
-                                Material.BONE_BLOCK, SOUL_BLUE, 0, false)),
+                        this::discordHowl),
+                // Ungated: no mechanic at all, just three heads and a full attack pool. Pure race.
                 new BossPhase("First Swelling", 0.75,
                         List.of(skullVolley, decayNova, tripleGaze),
-                        false, ThreefoldBane::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Cracked Ribcage", NamedTextColor.AQUA),
-                                Material.WITHER_SKELETON_SKULL, SOUL_BLUE, 1, false)),
+                        false, ThreefoldBane::onEnterPhase2),
+                // Three Heads, Three Mechanics: its signature. A bomb, a hunter and an execution all
+                // running at once on their own clocks — the phase is triage, not execution.
                 new BossPhase("Second Swelling", 0.40,
                         List.of(skullVolley, decayNova, tripleGaze, boneChoir),
                         false, ThreefoldBane::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Broken Choir"), Material.SOUL_LANTERN,
-                                DECAY_GREY, 2, false)),
+                        this::threeHeads),
+                // Its coronation runs on a clock only sustained damage holds down, and every overflow
+                // leaves it permanently larger and harder to hurt.
                 new BossPhase("Full Coronation", 0.15,
                         List.of(skullVolley, decayNova, tripleGaze, boneChoir),
                         true, ThreefoldBane::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Crown of Bane", NamedTextColor.RED),
-                                Material.NETHER_STAR, Color.fromRGB(180, 20, 20), 3, true)));
+                        this::coronationClock));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Soulcrown(plugin).createItem())
@@ -106,6 +114,67 @@ public final class ThreefoldBane extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Discord Howl: all three heads roar on a stagger, and where two cones overlap the damage
+     * multiplies. A clumped group occupies a small enough wedge for one seam to catch all of them,
+     * so it enforces spacing without ever printing "spread out".
+     */
+    private PhaseMechanic discordHowl(BossInstance instance) {
+        return new HowlConeMechanic(instance, "Discord Howl", SOUL_BLUE,
+                configInt("howl-cone-count", 3),
+                configDouble("howl-half-width-degrees", 34.0),
+                configInt("howl-interval-ticks", 150),
+                configInt("howl-telegraph-ticks", 44),
+                configDouble("howl-range", 22.0),
+                configDouble("howl-damage", 11.0),
+                configDouble("howl-overlap-multiplier", 2.2));
+    }
+
+    /**
+     * Three Heads, Three Mechanics: its signature. One head winds up a bomb, one throws something
+     * that follows you, and one marks a player for execution unless they move — all simultaneously,
+     * all on separate clocks. Breaking a head silences that one problem for a while and nothing else.
+     */
+    private PhaseMechanic threeHeads(BossInstance instance) {
+        return new ThreeHeadsMechanic(instance, "Three Heads", SOUL_BLUE, Material.WITHER_SKELETON_SKULL,
+                configDouble("heads-health", 45.0),
+                configInt("heads-silence-ticks", 200),
+                configInt("heads-nuke-interval-ticks", 130),
+                configInt("heads-nuke-telegraph-ticks", 40),
+                configDouble("heads-nuke-radius", 4.5),
+                configDouble("heads-nuke-damage", 16.0),
+                configInt("heads-seeker-interval-ticks", 150),
+                configDouble("heads-seeker-damage", 12.0),
+                configInt("heads-mark-interval-ticks", 200),
+                configInt("heads-mark-fuse-ticks", 80),
+                configDouble("heads-mark-damage", 24.0),
+                configDouble("heads-mark-escape-distance", 8.0),
+                configDouble("heads-placement-fraction", 0.55));
+    }
+
+    /**
+     * Full Coronation: a clock the group can only push back with sustained damage. Each overflow
+     * leaves it permanently bigger, faster and harder — falling behind compounds.
+     */
+    private PhaseMechanic coronationClock(BossInstance instance) {
+        return new EscalatingDoomMechanic(instance, "Coronation", DECAY_GREY,
+                configDouble("coronation-fill-per-second", 5.0),
+                configDouble("coronation-damage-per-point", 5.5),
+                configDouble("coronation-cap", 100.0),
+                configDouble("coronation-scale-step", 1.09),
+                configDouble("coronation-speed-step", 1.07),
+                configDouble("coronation-harden-step", 0.08),
+                configDouble("coronation-overflow-damage", 15.0));
+    }
+
+    /** Offset from its phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new HitCountShieldEvent(plugin, id(), new double[] {0.88, 0.32}),
+                new ConvergenceNukeEvent(plugin, id(), new double[] {0.60, 0.26}));
     }
 
     @Override

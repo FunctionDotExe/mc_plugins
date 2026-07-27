@@ -4,9 +4,15 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
+import dev.rbm72.weaponsplugin.boss.events.PullNukeEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.EscalatingDoomMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.HazardPatchMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.SplitShardsMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.AcidSprayAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.EngulfAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.OozeSlamAttack;
@@ -27,6 +33,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.potion.PotionEffectType;
 
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -53,26 +60,29 @@ public final class AmalgamatedBulk extends Boss {
         EngulfAttack engulf = new EngulfAttack(plugin);
 
         this.phases = List.of(
+                // Acid Puddle Legacy: it leaks as it moves and the leaks stay. The floor closes in
+                // steadily, so standing still stops being an option long before it becomes dangerous.
                 new BossPhase("The Bulk", 1.0,
                         List.of(oozeSlam, acidSpray),
                         false, AmalgamatedBulk::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Gelatin Core", NamedTextColor.GREEN),
-                                Material.SLIME_BLOCK, OOZE_GREEN, 0, false)),
+                        this::acidLegacy),
+                // Ungated: no mechanic, just a very large slime doing its best. Pure race.
                 new BossPhase("First Shedding", 0.72,
                         List.of(oozeSlam, acidSpray, split),
-                        false, AmalgamatedBulk::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Splitting Mass", NamedTextColor.GREEN),
-                                Material.SLIME_BLOCK, OOZE_GREEN, 1, false)),
+                        false, AmalgamatedBulk::onEnterPhase2),
+                // Split Pressure: its signature. It sheds shards and wants them back — every shard
+                // killed inside the window is mass it never recovers, every survivor walks home and
+                // heals it. Partial success is real and the group can watch the arithmetic run.
                 new BossPhase("Second Shedding", 0.40,
                         List.of(oozeSlam, acidSpray, split, engulf),
                         false, AmalgamatedBulk::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Thinning Ooze", NamedTextColor.GREEN),
-                                Material.HONEY_BLOCK, OOZE_GREEN, 2, false)),
+                        this::splitPressure),
+                // Reabsorption: what is left of it runs on a clock only sustained damage holds down,
+                // and every overflow leaves it permanently larger and harder to cut.
                 new BossPhase("Reabsorption", 0.15,
                         List.of(oozeSlam, acidSpray, engulf),
                         true, AmalgamatedBulk::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Hoarded Mass", NamedTextColor.RED),
-                                Material.NETHER_STAR, Color.fromRGB(180, 20, 20), 3, true)));
+                        this::reabsorption));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Vitriol(plugin).createItem())
@@ -106,6 +116,68 @@ public final class AmalgamatedBulk extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Acid Puddle Legacy: puddles keep appearing and growing and only leave on their own schedule, so
+     * the usable floor shrinks the whole band. Hard-capped well short of sealing the arena, and never
+     * placed under someone's feet — it denies space rather than dealing unreadable damage.
+     */
+    private PhaseMechanic acidLegacy(BossInstance instance) {
+        return new HazardPatchMechanic(instance, "Acid Legacy", OOZE_GREEN, Particle.ITEM_SLIME,
+                configInt("acid-spawn-interval-ticks", 65),
+                configInt("acid-max-patches", 8),
+                configDouble("acid-start-radius", 2.6),
+                configDouble("acid-max-radius", 5.2),
+                configDouble("acid-growth-per-second", 0.3),
+                configInt("acid-lifetime-ticks", 340),
+                configDouble("acid-damage-per-second", 3.5),
+                PotionEffectType.SLOWNESS, 1,
+                configDouble("acid-placement-fraction", 0.8));
+    }
+
+    /**
+     * Split Pressure: its signature, and the phase Total Absorption belongs to — the shards it fails
+     * to get back are gone for good, and the ones it does get back heal it. Blunted rather than immune
+     * while split, so a group that never solves it still finishes, just against a much fatter slime.
+     */
+    private PhaseMechanic splitPressure(BossInstance instance) {
+        return new SplitShardsMechanic(instance, "Split Pressure", "Shed Mass", OOZE_GREEN,
+                EntityType.SLIME,
+                configInt("split-shard-count", 5),
+                configDouble("split-shard-health", 26.0),
+                configInt("split-window-ticks", 220),
+                configInt("split-regroup-delay-ticks", 120),
+                configDouble("split-heal-per-survivor", 14.0),
+                configDouble("split-exposed-multiplier", 2.2),
+                configInt("split-exposed-ticks", 170),
+                configInt("split-stagger-ticks", 60),
+                configDouble("split-spawn-radius", 6.0));
+    }
+
+    /**
+     * Reabsorption: a clock only sustained damage pushes back. Each overflow leaves it permanently
+     * bigger, faster and harder to hurt — falling behind here compounds rather than merely costing
+     * health.
+     */
+    private PhaseMechanic reabsorption(BossInstance instance) {
+        return new EscalatingDoomMechanic(instance, "Reabsorption", OOZE_GREEN,
+                configDouble("reabsorption-fill-per-second", 5.0),
+                configDouble("reabsorption-damage-per-point", 5.0),
+                configDouble("reabsorption-cap", 100.0),
+                configDouble("reabsorption-scale-step", 1.1),
+                configDouble("reabsorption-speed-step", 1.05),
+                configDouble("reabsorption-harden-step", 0.08),
+                configDouble("reabsorption-overflow-damage", 14.0));
+    }
+
+    /** Offset from its phase boundaries (0.72 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new HitCountShieldEvent(plugin, id(), new double[] {0.86, 0.30}),
+                new PullNukeEvent(plugin, id(), new double[] {0.58, 0.24},
+                        "TOTAL ABSORPTION", "It is inhaling the room — get out of its reach"));
     }
 
     @Override

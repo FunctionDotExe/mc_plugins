@@ -26,16 +26,11 @@ public final class BossHologram {
         return Bukkit.getPluginManager().isPluginEnabled("DecentHolograms");
     }
 
-    private static String id(BossInstance instance) {
-        return "bossfight-" + instance.boss().id();
-    }
-
     public static void start(BossInstance instance) {
         if (!available() || !instance.boss().hologramEnabled()) {
             return;
         }
-        Location loc = instance.arena().center().add(0, 3.0, 0);
-        DHAPI.createHologram(id(instance), loc, lines(instance, 1.0));
+        Impl.start(instance);
     }
 
     /** Called from the boss's tick loop — refreshes the health line to the current fraction. */
@@ -43,21 +38,18 @@ public final class BossHologram {
         if (!available() || !instance.boss().hologramEnabled()) {
             return;
         }
-        Hologram hologram = DHAPI.getHologram(id(instance));
-        if (hologram == null) {
-            return;
-        }
-        DHAPI.setHologramLines(hologram, lines(instance, fraction));
+        Impl.update(instance, fraction);
     }
 
     public static void stop(BossInstance instance) {
         if (!available()) {
             return;
         }
-        Hologram hologram = DHAPI.getHologram(id(instance));
-        if (hologram != null) {
-            hologram.delete();
-        }
+        Impl.stop(instance);
+    }
+
+    private static String id(BossInstance instance) {
+        return "bossfight-" + instance.boss().id();
     }
 
     private static List<String> lines(BossInstance instance, double fraction) {
@@ -66,5 +58,35 @@ public final class BossHologram {
         String bar = "§a" + "|".repeat(filled) + "§7" + "|".repeat(BAR_SEGMENTS - filled)
                 + " §f" + Math.round(fraction * 100) + "%";
         return List.of(name, bar);
+    }
+
+    /**
+     * Every direct DecentHolograms type reference lives in this nested class, which the JVM links
+     * only the first time one of its methods actually runs — that is, only after {@link #available()}
+     * has confirmed DecentHolograms is present. If these references sat in the outer methods instead,
+     * merely *calling* {@link #start} on a server without DecentHolograms would fail to link the
+     * method ({@link NoClassDefFoundError}) before the guard's early-return could ever execute.
+     */
+    private static final class Impl {
+
+        static void start(BossInstance instance) {
+            Location loc = instance.arena().center().add(0, 3.0, 0);
+            DHAPI.createHologram(id(instance), loc, lines(instance, 1.0));
+        }
+
+        static void update(BossInstance instance, double fraction) {
+            Hologram hologram = DHAPI.getHologram(id(instance));
+            if (hologram == null) {
+                return;
+            }
+            DHAPI.setHologramLines(hologram, lines(instance, fraction));
+        }
+
+        static void stop(BossInstance instance) {
+            Hologram hologram = DHAPI.getHologram(id(instance));
+            if (hologram != null) {
+                hologram.delete();
+            }
+        }
     }
 }

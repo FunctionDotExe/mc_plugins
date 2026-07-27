@@ -97,7 +97,7 @@ public final class UndertowAttack extends BossAttack {
                             double pull = basePull + ticks * pullRampPerTick;
                             renderSwirl(pull);
                             double eyeSq = eyeRadius * eyeRadius;
-                            for (Player player : Arena.playersNear(eye, radius)) {
+                            for (Player player : Arena.combatants(eye, radius)) {
                                 Vector toEye = eye.toVector().subtract(player.getLocation().toVector());
                                 toEye.setY(0);
                                 double dist = toEye.length();
@@ -127,7 +127,7 @@ public final class UndertowAttack extends BossAttack {
                             ctx.instance().setForcedInvulnerable(false);
                             boolean anyCaught = false;
                             double eyeSq = eyeRadius * eyeRadius;
-                            for (Player player : Arena.playersNear(eye, radius)) {
+                            for (Player player : Arena.combatants(eye, radius)) {
                                 if (player.getLocation().distanceSquared(eye) <= eyeSq) {
                                     anyCaught = true;
                                     player.damage(collapseDamage, ctx.boss());

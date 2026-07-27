@@ -4,9 +4,15 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import dev.rbm72.weaponsplugin.boss.BossAmbiance;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.VulnerabilitySpec;
+import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.events.ConvergenceNukeEvent;
+import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
+import dev.rbm72.weaponsplugin.boss.mechanics.ContagionLedgerMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.HazardPatchMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.TelegraphedEruptionMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.AfflictionAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BlightSigilsAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.CorruptionSpreadAttack;
@@ -33,6 +39,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.List;
@@ -69,27 +76,30 @@ public final class PlagueWarden extends Boss {
                 Sound.ENTITY_ZOMBIE_VILLAGER_CURE);
 
         this.phases = List.of(
-                new BossPhase("Phase 1", 1.0,
+                // Spore Cloud Maze: the floor keeps closing. Nothing is gated — the arena simply gets
+                // smaller and more poisonous while he fights, so standing still stops being an option.
+                new BossPhase("Spore Bloom", 1.0,
                         List.of(poisonCloud, summonUndead, plagueBolt, corruptionSpread),
                         false, PlagueWarden::onEnterPhase1,
-                        VulnerabilitySpec.scaled(Component.text("Festering Buboes", NamedTextColor.GREEN),
-                                Material.SPORE_BLOSSOM, TOXIC, 0, false)),
+                        this::sporeCloudMaze),
+                // Ungated: no mechanic at all, just the whole rot kit trying to kill you. His one
+                // stretch of straight fighting, and the contrast that makes the rest read as designed.
                 new BossPhase("Rot Takes Hold", 0.75,
                         List.of(miasma, rottingGrasp, summonUndead, poisonCloud, blightSigils, virulentRot),
-                        false, PlagueWarden::onEnterPhase2,
-                        VulnerabilitySpec.scaled(Component.text("Festering Buboes", NamedTextColor.GREEN),
-                                Material.SPORE_BLOSSOM, SICKLY, 1, false)),
+                        false, PlagueWarden::onEnterPhase2),
+                // Contagion Ledger: his signature. Every wound you deal is written against your name
+                // and the room settles the account together — so the group has to take turns.
                 new BossPhase("Pestilence", 0.40,
                         List.of(plagueSwarm, corruptionSpread, miasma, summonUndead, blightSigils, pandemicSurge, virulentRot),
                         false, PlagueWarden::onEnterPhase3,
-                        VulnerabilitySpec.scaled(Component.text("Plague Nodes", NamedTextColor.DARK_GREEN),
-                                Material.SLIME_BLOCK, TOXIC, 2, false)),
+                        this::contagionLedger),
+                // Withering Roots: the ground marks whoever stands on it and then grabs them. A pure
+                // footwork check to finish, and the thing that finally forbids camping his feet.
                 new BossPhase("The Great Plague", 0.15,
                         List.of(poisonCloud, plagueBolt, corruptionSpread, rottingGrasp, plagueSwarm, pandemic,
                                 blightSigils, pandemicSurge),
                         true, PlagueWarden::onEnterEnrage,
-                        VulnerabilitySpec.scaled(Component.text("Warden's Core", NamedTextColor.GREEN),
-                                Material.NETHER_STAR, SICKLY, 3, true)));
+                        this::witheringRoots));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Rotscourge(plugin).createItem())
@@ -123,6 +133,64 @@ public final class PlagueWarden extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Spore Cloud Maze: clouds keep sprouting, keep growing, and only leave when they are finished —
+     * so the usable floor shrinks steadily. Capped well short of sealing the arena, and patches never
+     * appear directly under a player, so it denies space rather than dealing unavoidable damage.
+     */
+    private PhaseMechanic sporeCloudMaze(BossInstance instance) {
+        return new HazardPatchMechanic(instance, "Spore Maze", TOXIC, Particle.SPORE_BLOSSOM_AIR,
+                configInt("spore-spawn-interval-ticks", 70),
+                configInt("spore-max-patches", 7),
+                configDouble("spore-start-radius", 2.5),
+                configDouble("spore-max-radius", 5.0),
+                configDouble("spore-growth-per-second", 0.25),
+                configInt("spore-lifetime-ticks", 320),
+                configDouble("spore-damage-per-second", 3.0),
+                PotionEffectType.POISON, 0,
+                configDouble("spore-placement-fraction", 0.75));
+    }
+
+    /**
+     * Contagion Ledger: his signature, and the reason this fight cannot be carried by one player's
+     * damage. Personal debt only bleeds off while you are not swinging, and the room's burst hits
+     * each player for what they personally owe.
+     */
+    private PhaseMechanic contagionLedger(BossInstance instance) {
+        return new ContagionLedgerMechanic(instance, SICKLY,
+                configDouble("contagion-stacks-per-damage", 1.0),
+                configDouble("contagion-decay-per-second", 9.0),
+                configDouble("contagion-ledger-cap", 260.0),
+                configDouble("contagion-burst-base-damage", 4.0),
+                configDouble("contagion-burst-damage-per-stack", 0.16),
+                configInt("contagion-sickness-ticks", 100),
+                configDouble("contagion-heal-per-stack", 0.05));
+    }
+
+    /**
+     * Withering Roots: the ground telegraphs under whoever is standing still and then snares them.
+     * Damage is modest; the root is the real cost, since the rest of his kit is still firing.
+     */
+    private PhaseMechanic witheringRoots(BossInstance instance) {
+        return new TelegraphedEruptionMechanic(instance, "Withering Roots", TOXIC,
+                Particle.SPORE_BLOSSOM_AIR, Sound.BLOCK_GRASS_BREAK, Sound.ENTITY_ZOMBIE_INFECT,
+                configInt("roots-volley-interval-ticks", 70),
+                configInt("roots-telegraph-ticks", 34),
+                configDouble("roots-radius", 2.6),
+                configDouble("roots-damage", 10.0),
+                configInt("roots-snare-ticks", 45),
+                configInt("roots-marks-per-volley", 3));
+    }
+
+    /** Offset from his phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    @Override
+    public List<BossEvent> events() {
+        return List.of(
+                new HitCountShieldEvent(plugin, id(), new double[] {0.88, 0.26}),
+                new ConvergenceNukeEvent(plugin, id(), new double[] {0.60, 0.32},
+                        "PANDEMIC BLOOM", "Get clear of him — everything within reach dies"));
     }
 
     @Override

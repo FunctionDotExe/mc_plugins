@@ -3,6 +3,7 @@ package dev.rbm72.weaponsplugin.listeners;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Shield;
 import dev.rbm72.weaponsplugin.items.ShieldRegistry;
+import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Particle;
@@ -33,11 +34,16 @@ import java.util.UUID;
  */
 public final class ShieldBlockListener implements Listener {
 
+    /** How long a parry notice owns the action bar before the merged cooldown line comes back. */
+    private static final long PARRY_NOTICE_MS = 1200;
+
     private final ShieldRegistry registry;
+    private final ActionBarHub actionBar;
     private final Map<UUID, Long> blockStartMs = new HashMap<>();
 
-    public ShieldBlockListener(ShieldRegistry registry) {
+    public ShieldBlockListener(ShieldRegistry registry, ActionBarHub actionBar) {
         this.registry = registry;
+        this.actionBar = actionBar;
     }
 
     @EventHandler
@@ -93,14 +99,16 @@ public final class ShieldBlockListener implements Listener {
     private void parry(Player victim, org.bukkit.entity.Entity damager, Shield shield) {
         Fx.sound(victim, Sound.ITEM_SHIELD_BLOCK, 1.4f, 1.6f);
         Fx.burst(victim.getEyeLocation(), Particle.CRIT, 20, 0.4);
-        victim.sendActionBar(Component.text("Parried!", NamedTextColor.AQUA));
+        actionBar.flash(victim, Component.text("Parried!", NamedTextColor.AQUA), PARRY_NOTICE_MS,
+                ActionBarHub.PRIORITY_NOTICE);
 
         if (damager instanceof LivingEntity attacker) {
             int ticks = shield.parryStunTicks();
             attacker.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, ticks, 4, false, true));
             attacker.addPotionEffect(new PotionEffect(PotionEffectType.MINING_FATIGUE, ticks, 2, false, true));
             if (attacker instanceof Player attackerPlayer) {
-                attackerPlayer.sendActionBar(Component.text("Parried!", NamedTextColor.RED));
+                actionBar.flash(attackerPlayer, Component.text("Parried!", NamedTextColor.RED), PARRY_NOTICE_MS,
+                        ActionBarHub.PRIORITY_NOTICE);
             }
         }
     }

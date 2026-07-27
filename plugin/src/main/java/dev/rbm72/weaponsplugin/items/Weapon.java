@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.util.TooltipFrame;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -215,19 +216,21 @@ public abstract class Weapon {
      * look, since pointing at a model that doesn't exist in the pack renders as a missing texture.
      */
     private static final Set<String> TEXTURED_IDS = Set.of(
-            "solar_greatsword", "chrono_blade", "frost_scythe", "necromancer_staff",
-            "thunder_hammer", "hunters_crossbow", "plague_scythe", "dawnbreaker",
-            "wyrmscale_bow", "duskfall_mace", "tempest_maul", "void_blade",
-            "lunar_blade", "venomtip_javelin", "chainwhip", "shadow_daggers",
-            "stormbreaker", "soulharvester", "blood_reaper", "glacial_scepter",
-            "wind_spear", "tidal_trident");
-
-    /** Rarity-colored horizontal rule framing the tooltip's stat block and footer. */
-    private Component borderLine() {
-        return Component.text("▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬", rarity().color())
-                .decoration(TextDecoration.STRIKETHROUGH, false)
-                .decoration(TextDecoration.ITALIC, false);
-    }
+            "anglers_hook", "anvilfall", "apotheosis", "arcane_staff",
+            "ballista_crossbow", "blastcaller", "blood_reaper", "celestial_bow",
+            "chainwhip", "chrono_blade", "cinder_cleaver", "cryoclasm",
+            "dawnbreaker", "dragon_fang", "dreadlance", "duskfall_mace",
+            "earthbreaker_axe", "excavators_pick", "exsanguinator", "flame_katana",
+            "frost_scythe", "glacial_scepter", "hive_breaker", "hunters_crossbow",
+            "ironclaw_knuckles", "kings_judgment", "legionnaires_pike", "lunar_blade",
+            "maelstrom_trident", "meteor_maul", "mournsong", "necromancer_staff",
+            "nullblade", "plague_scythe", "rotscourge", "sakura_blade",
+            "serpentfang_crossbow", "shadow_daggers", "solar_greatsword", "soulcrown",
+            "soulharvester", "spikequake_warpick", "spinelash", "starbreaker",
+            "starfang", "storm_chakrams", "stormbreaker", "stormreach_halberd",
+            "tearfall", "tempest_maul", "thunder_hammer", "tidal_trident",
+            "venomtip_javelin", "vitriol", "void_blade", "wind_spear",
+            "wyrmscale_bow");
 
     public final ItemStack createItem() {
         ItemStack item = new ItemStack(material());
@@ -235,10 +238,8 @@ public abstract class Weapon {
 
         meta.displayName(displayName());
 
-        List<Component> lore = new ArrayList<>();
-        lore.add(Component.empty());
-        lore.add(borderLine());
-        lore.add(Component.text("❁ Damage  ", NamedTextColor.GRAY)
+        List<Component> body = new ArrayList<>();
+        body.add(Component.text("❁ Damage  ", NamedTextColor.GRAY)
                 .decoration(TextDecoration.ITALIC, false)
                 .append(Component.text(String.format(Locale.ROOT, "+%.1f", effectiveMeleeDamage()), NamedTextColor.RED)
                         .decoration(TextDecoration.BOLD, true)));
@@ -252,12 +253,12 @@ public abstract class Weapon {
             if (block.isEmpty()) {
                 continue;
             }
-            lore.add(Component.empty());
+            body.add(Component.empty());
 
             String name = names[i];
             boolean hasName = name != null && !name.isBlank();
             if (hasName) {
-                lore.add(Component.text(ABILITY_ICONS[i] + " ", rarity().color())
+                body.add(Component.text(ABILITY_ICONS[i] + " ", rarity().color())
                         .decoration(TextDecoration.ITALIC, false)
                         .append(Component.text(name, rarity().color())
                                 .decoration(TextDecoration.BOLD, true)
@@ -272,22 +273,24 @@ public abstract class Weapon {
                 } else {
                     text = Component.text(" ").append(text);
                 }
-                lore.add(text);
+                body.add(text);
             }
             if (cooldowns[i] > 0) {
-                lore.add(Component.text(" ⏱ ", NamedTextColor.DARK_GRAY)
+                body.add(Component.text(" ⏱ ", NamedTextColor.DARK_GRAY)
                         .decoration(TextDecoration.ITALIC, false)
                         .append(Component.text(String.format(Locale.ROOT, "%.1fs", cooldowns[i]), NamedTextColor.DARK_GRAY)
                                 .decoration(TextDecoration.ITALIC, true)));
             }
         }
 
+        String footerLabel = rarity().label().toUpperCase(Locale.ROOT) + " WEAPON";
+        int frameWidth = Math.max(TooltipFrame.widestLine(body), TooltipFrame.footerWidth(footerLabel));
+
+        List<Component> lore = new ArrayList<>();
         lore.add(Component.empty());
-        lore.add(borderLine());
-        lore.add(Component.text("◆ " + rarity().label().toUpperCase(Locale.ROOT) + " WEAPON ◆", rarity().color())
-                .decoration(TextDecoration.BOLD, true)
-                .decoration(TextDecoration.ITALIC, false));
-        lore.add(borderLine());
+        lore.addAll(body);
+        lore.add(Component.empty());
+        lore.add(TooltipFrame.footer(footerLabel, rarity().color(), frameWidth));
         meta.lore(lore);
 
         meta.setUnbreakable(true);

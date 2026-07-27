@@ -31,11 +31,22 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 public final class Grief {
 
+    /** Server-wide kill switch toggled by {@code /grief} — overrides every boss's own grief config while on. */
+    private static volatile boolean globallyDisabled = false;
+
     private Grief() {
     }
 
+    public static void setGloballyDisabled(boolean disabled) {
+        globallyDisabled = disabled;
+    }
+
+    public static boolean isGloballyDisabled() {
+        return globallyDisabled;
+    }
+
     public static boolean enabled(AttackContext ctx) {
-        return ctx.instance().boss().griefEnabled();
+        return !globallyDisabled && ctx.instance().boss().griefEnabled();
     }
 
     /**

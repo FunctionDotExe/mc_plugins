@@ -4,6 +4,7 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.ability.CooldownManager.Slot;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.util.TooltipFrame;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -111,54 +112,48 @@ public abstract class Accessory {
                 .decoration(TextDecoration.ITALIC, false);
     }
 
-    /** Rarity-colored horizontal rule framing the tooltip's ability block and footer. */
-    private Component borderLine() {
-        return Component.text("▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬", rarity().color())
-                .decoration(TextDecoration.ITALIC, false);
-    }
-
     public final ItemStack createItem() {
         ItemStack item = new ItemStack(material());
         ItemMeta meta = item.getItemMeta();
 
         meta.displayName(displayName());
 
-        List<Component> lore = new ArrayList<>();
-        lore.add(Component.empty());
-        lore.add(borderLine());
+        List<Component> body = new ArrayList<>();
         for (Component line : description()) {
-            lore.add(line.decoration(TextDecoration.ITALIC, false));
+            body.add(line.decoration(TextDecoration.ITALIC, false));
         }
 
         if (hasPersonalAbility()) {
-            lore.add(Component.empty());
+            body.add(Component.empty());
             String name = personalAbilityName();
             if (name != null && !name.isBlank()) {
-                lore.add(Component.text("☆ " + name, rarity().color())
+                body.add(Component.text("☆ " + name, rarity().color())
                         .decoration(TextDecoration.BOLD, true)
                         .decoration(TextDecoration.ITALIC, false));
             }
             for (Component line : personalAbilityLore()) {
-                lore.add(Component.text(" ").append(line.decoration(TextDecoration.ITALIC, false)));
+                body.add(Component.text(" ").append(line.decoration(TextDecoration.ITALIC, false)));
             }
-            lore.add(Component.text(" ↯ ", NamedTextColor.DARK_GRAY)
+            body.add(Component.text(" ↯ ", NamedTextColor.DARK_GRAY)
                     .decoration(TextDecoration.ITALIC, false)
                     .append(Component.text("double-tap sneak", NamedTextColor.DARK_GRAY)
                             .decoration(TextDecoration.ITALIC, true)));
             if (personalAbilityCooldownSeconds() > 0) {
-                lore.add(Component.text(" ⏱ ", NamedTextColor.DARK_GRAY)
+                body.add(Component.text(" ⏱ ", NamedTextColor.DARK_GRAY)
                         .decoration(TextDecoration.ITALIC, false)
                         .append(Component.text(String.format(Locale.ROOT, "%.1fs", personalAbilityCooldownSeconds()), NamedTextColor.DARK_GRAY)
                                 .decoration(TextDecoration.ITALIC, true)));
             }
         }
 
+        String footerLabel = rarity().label().toUpperCase(Locale.ROOT) + " ACCESSORY";
+        int frameWidth = Math.max(TooltipFrame.widestLine(body), TooltipFrame.footerWidth(footerLabel));
+
+        List<Component> lore = new ArrayList<>();
         lore.add(Component.empty());
-        lore.add(borderLine());
-        lore.add(Component.text("◆ " + rarity().label().toUpperCase(Locale.ROOT) + " ACCESSORY ◆", rarity().color())
-                .decoration(TextDecoration.BOLD, true)
-                .decoration(TextDecoration.ITALIC, false));
-        lore.add(borderLine());
+        lore.addAll(body);
+        lore.add(Component.empty());
+        lore.add(TooltipFrame.footer(footerLabel, rarity().color(), frameWidth));
         meta.lore(lore);
 
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_ENCHANTS);

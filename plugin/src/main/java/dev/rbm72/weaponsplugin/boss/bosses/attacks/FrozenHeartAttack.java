@@ -7,6 +7,7 @@ import dev.rbm72.weaponsplugin.boss.BossAttack;
 import dev.rbm72.weaponsplugin.boss.BossAudio;
 import dev.rbm72.weaponsplugin.boss.grief.Grief;
 import dev.rbm72.weaponsplugin.fx.Fx;
+import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -65,7 +66,7 @@ public final class FrozenHeartAttack extends BossAttack {
 
     @Override
     protected void castRun(AttackContext ctx, Runnable onComplete) {
-        List<Player> candidates = Arena.playersNear(ctx.bossLocation(), ctx.arena().radius());
+        List<Player> candidates = Arena.combatants(ctx.bossLocation(), ctx.arena().radius());
         if (candidates.isEmpty()) {
             sequence(telegraphTicks, () -> { }, () -> { }, 5, onComplete);
             return;
@@ -84,7 +85,9 @@ public final class FrozenHeartAttack extends BossAttack {
                     frozen.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, durationTicks + 20, 6));
                     frozen.addPotionEffect(new PotionEffect(PotionEffectType.MINING_FATIGUE, durationTicks + 20, 6));
                     frozen.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, durationTicks + 20, 128));
-                    frozen.sendActionBar(Component.text("You're frozen solid — your allies must stand with you!", NamedTextColor.AQUA));
+                    ctx.plugin().actionBarHub().flash(frozen,
+                            Component.text("You're frozen solid — your allies must stand with you!", NamedTextColor.AQUA),
+                            3000, ActionBarHub.PRIORITY_NOTICE);
                     BossAudio.play(base, "boss.frozen_heart", Sound.BLOCK_GLASS_PLACE, 1.0f, 0.5f);
                     Fx.coloredBurst(base.clone().add(0, 1.2, 0), FROST_BLUE, 2.0f, 50, 0.7);
 
@@ -103,7 +106,7 @@ public final class FrozenHeartAttack extends BossAttack {
                                 cancel();
                                 return;
                             }
-                            boolean rescuerPresent = Arena.playersNear(frozen.getLocation(), 3.0).stream()
+                            boolean rescuerPresent = Arena.combatants(frozen.getLocation(), 3.0).stream()
                                     .anyMatch(p -> !p.equals(frozen));
                             if (rescuerPresent) {
                                 channelTicks++;
