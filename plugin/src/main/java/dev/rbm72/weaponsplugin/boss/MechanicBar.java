@@ -111,6 +111,17 @@ public final class MechanicBar {
         clearBars();
     }
 
+    /**
+     * Whether this bar currently occupies a line on {@code player}'s screen.
+     * <p>
+     * Asked by anything deciding whether there is room left in the player's boss-bar stack for another
+     * one — a bar is cheap to add and expensive to read once three of them are tiled up the screen and
+     * their names start overlapping the bar above.
+     */
+    public boolean isShowingTo(Player player) {
+        return player != null && bars.containsKey(player.getUniqueId());
+    }
+
     private void write(List<Player> viewers, Function<Player, Readout> readout) {
         for (Player player : viewers) {
             Readout shown = readout.apply(player);

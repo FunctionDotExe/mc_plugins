@@ -6,11 +6,11 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * The single owner of every player's action bar.
@@ -51,7 +51,13 @@ public final class ActionBarHub {
     /** Priority for a continuously re-sent takeover like a boss cast bar — deliberately below one-off notices. */
     public static final int PRIORITY_SUSTAINED = 5;
 
-    private final List<Source> sources = new ArrayList<>();
+    /**
+     * Copy-on-write because {@link #unregister} exists: a fight-scoped source is dropped from fight
+     * teardown, which is the same main thread the refresh runs on but not necessarily outside it — a
+     * teardown reached from inside a merge would otherwise be a concurrent modification. Writes happen
+     * once per fight, reads several times a second, so the copy is free in practice.
+     */
+    private final List<Source> sources = new CopyOnWriteArrayList<>();
     private final Map<UUID, Flash> flashes = new HashMap<>();
 
     private record Flash(Component message, long expiresAtMs, int priority) {
@@ -67,6 +73,16 @@ public final class ActionBarHub {
      */
     public void register(Source source) {
         sources.add(source);
+    }
+
+    /**
+     * Drops a contributor that is not meant to last the server's lifetime — a boss fight's meter
+     * readout, which exists only while that fight does. Without this every fight would leave a source
+     * behind, each one polled for every online player forever, all of them holding their dead fight's
+     * state alive.
+     */
+    public void unregister(Source source) {
+        sources.remove(source);
     }
 
     public void start(Plugin plugin) {

@@ -6,6 +6,8 @@ import dev.rbm72.weaponsplugin.boss.ai.TargetSelector;
 import dev.rbm72.weaponsplugin.boss.integration.BossHologram;
 import dev.rbm72.weaponsplugin.boss.integration.DiscordNotifier;
 import dev.rbm72.weaponsplugin.boss.integration.WorldGuardArenaGuard;
+import dev.rbm72.weaponsplugin.boss.grief.ArenaLedger;
+import dev.rbm72.weaponsplugin.boss.meter.MeterRegistry;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -76,6 +78,8 @@ public final class BossInstance {
     private final AddManager addManager = new AddManager();
     private final BossBarController barController = new BossBarController();
     private final MechanicBar mechanicBar = new MechanicBar();
+    private final ArenaLedger ledger;
+    private final MeterRegistry meters;
     private final ArenaBarrier arenaBarrier;
     private final BossAmbiance.Handle ambianceHandle;
     private final List<BukkitTask> tasks = new ArrayList<>();
@@ -91,6 +95,11 @@ public final class BossInstance {
     private BossEvent activeEvent;
     /** "<eventId>@<fraction>" for every milestone already spent, so none can replay if the boss heals. */
     private final Set<String> firedEvents = new HashSet<>();
+    /**
+     * A mechanic's standing say on who the boss should be chasing, or null for the default rule.
+     * Cleared on every phase change so an override can never outlive the mechanic that set it.
+     */
+    private java.util.function.Supplier<Player> targetOverride;
     private double damageMultiplier = 1.0;
     /** Never resets on phase change — see {@link #addPermanentDamageReduction}. */
     private double permanentDamageReduction;
@@ -98,6 +107,8 @@ public final class BossInstance {
     private boolean forcedInvulnerable;
     private int exposuresThisPhase;
     private long floorLockStartMs;
+    /** One warning per phase when the floor-lock valve fires, so a bypassed objective is never silent. */
+    private boolean floorLockTimeoutLogged;
     private long lastDeflectMs;
     private int invalidTicks;
 
@@ -109,7 +120,12 @@ public final class BossInstance {
         this.arena = arena;
         this.maxHealth = maxHealth;
 
+        this.ledger = new ArenaLedger(plugin, boss.arenaRestoreEnabled(), boss.maxLedgerBlocks(),
+                boss.restoreBlocksPerTick());
         this.arenaBarrier = boss.arenaBarrierEnabled() ? new ArenaBarrier(arena.center(), arena.radius()) : null;
+        // Built before the first phase enters, because a phase's onEnter is one of the two places a
+        // meter is legitimately attached (the other being the boss's own spawn hook).
+        this.meters = new MeterRegistry(this);
 
         this.ambianceHandle = boss.ambiance().start(this);
         this.currentPhase = BossPhase.select(boss.phases(), 1.0);
@@ -145,6 +161,43 @@ public final class BossInstance {
     }
 
     /**
+     * True while an attack is mid-sequence — telegraph up, or the hit itself still landing.
+     * <p>
+     * Exposed for mechanics that <em>move the boss</em> outside of the attack system. The framework
+     * already refuses to start a second attack or to pathfind while this is set, but a mechanic that
+     * teleports him has no way to see it, and a boss that relocates between a telegraph and its payload
+     * reads as a bug even when the payload lands honestly where the telegraph pointed.
+     */
+    public boolean attacking() {
+        return attackInProgress;
+    }
+
+    /**
+     * This fight's undo log for world damage. Every block a boss changes goes through here first, and
+     * the whole thing is rolled back in {@link #end}. Public because the destructive primitives and the
+     * explosion listener both live outside this package.
+     */
+    public ArenaLedger ledger() {
+        return ledger;
+    }
+
+    /**
+     * This fight's player meters — the armour-ignoring, non-healable clocks four bosses in the roster
+     * are built around (Chill, Static Charge, Infection, Void Echo).
+     * <p>
+     * A boss or a phase attaches a skin with {@code meters().attach(spec)} and keeps the returned
+     * handle; anything else in the fight finds it again with {@code meters().meter("chill")}. A
+     * fight-long meter should be attached from the boss's first phase and simply left alone — the
+     * registry's teardown in {@link #end} is what puts every affected player back to normal. A meter
+     * that genuinely belongs to one phase must be detached by that phase's mechanic in its
+     * {@code onStop()}, since a phase change deliberately does not touch meters (a Chill clock that
+     * reset itself every phase transition would hand players a free purge for pushing damage).
+     */
+    public MeterRegistry meters() {
+        return meters;
+    }
+
+    /**
      * The dedicated mechanic readout bar. Anything with running state a player must be able to see —
      * a hit counter, a countdown, which half of the floor they are standing on — belongs here rather
      * than on the action bar, where it competes with cast bars and combat notices and loses.
@@ -156,6 +209,23 @@ public final class BossInstance {
     /** Everyone the mechanic bar should currently be talking to. */
     public java.util.List<Player> barViewers() {
         return arena.playersNear(UI_PRESENCE_BUFFER);
+    }
+
+    /**
+     * How many of this fight's boss bars {@code player} is being shown right now — the health bar, and
+     * the mechanic bar when the running mechanic has something to say to them.
+     * <p>
+     * Deliberately excludes the meter readout, which is the thing asking: a meter that counted its own
+     * bar would flip channels on its own output every pulse. Boss bars tile up the screen and their
+     * names sit tight against the bar above, so a third one is where a stack stops being readable — see
+     * {@link dev.rbm72.weaponsplugin.boss.meter.MeterRegistry} for what is done about it.
+     */
+    public int visibleBarCount(Player player) {
+        int count = barController.isShowingTo(player) ? 1 : 0;
+        if (mechanicBar.isShowingTo(player)) {
+            count++;
+        }
+        return count;
     }
 
     public boolean isEnraged() {
@@ -198,6 +268,45 @@ public final class BossInstance {
         permanentDamageReduction = Math.min(MAX_PERMANENT_DAMAGE_REDUCTION, permanentDamageReduction + amount);
     }
 
+    /**
+     * Lets the running mechanic decide who the boss chases, overriding {@link TargetSelector}'s default
+     * "press the weakest player" rule for as long as the supplier keeps naming a live combatant.
+     * <p>
+     * Three of the batch-1 designs are built on the boss pursuing a <em>specific</em> player for reasons
+     * the default rule cannot see: the Fallen King hunts whoever is carrying a Crown Shard, the Frost
+     * Queen's lances follow whoever is carrying fire to the Heart, and the Void Sovereign fixes on the
+     * player he has just blinked onto. Each of those is the phase's whole pressure, and expressing it by
+     * having a mechanic damage its preferred target into the lowest-health slot would be both indirect
+     * and wrong — the carrier is frequently the healthiest person in the room, on purpose.
+     * <p>
+     * A supplier rather than a player, because the answer changes every pulse and a mechanic should not
+     * have to re-register it. Returning null falls straight back to the default rule, so a phase with no
+     * carrier right now behaves exactly as an unhooked fight does. Cleared automatically on every phase
+     * change; a mechanic that sets it mid-phase should still clear it in its own teardown.
+     */
+    public void setTargetOverride(java.util.function.Supplier<Player> override) {
+        this.targetOverride = override;
+    }
+
+    /**
+     * The override's answer for this tick, or null when there is none or it named somebody the fight
+     * should not be pointed at (offline, spectating, dead, gone from the arena).
+     */
+    private Player overriddenTarget() {
+        if (targetOverride == null) {
+            return null;
+        }
+        Player chosen;
+        try {
+            chosen = targetOverride.get();
+        } catch (Exception e) {
+            plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                    "Target override threw for boss '" + boss.id() + "' — falling back to the default rule.", e);
+            return null;
+        }
+        return chosen != null && chosen.isValid() && !chosen.isDead() && Arena.isCombatant(chosen) ? chosen : null;
+    }
+
     /** Public: trial attacks live in {@code bosses.attacks}, a different package from the rest of this framework. */
     public void setDamageMultiplier(double multiplier) {
         this.damageMultiplier = multiplier;
@@ -223,6 +332,23 @@ public final class BossInstance {
      */
     public void recordExposure() {
         exposuresThisPhase++;
+    }
+
+    /**
+     * Called by a mechanic every time the group makes <em>partial</em> headway on this phase's
+     * objective — one grave of two broken, one anchor of four cut, a pile mined out. Resets the floor
+     * lock's patience clock without satisfying the phase.
+     * <p>
+     * This is what separates "the objective is unreachable" from "the objective is long". The timeout
+     * valve exists for the first case, but it could not tell the two apart: an objective that takes
+     * three minutes of block work looked exactly like a griefed weak point nobody could touch, so a
+     * group that ignored the mechanic entirely and a group grinding through it were both handed the
+     * phase at the same moment — and the group ignoring it got there first, because pure DPS is faster
+     * than DPS plus mining. With progress resetting the clock, the valve only ever fires on a fight
+     * that is genuinely making no headway at all.
+     */
+    public void recordProgress() {
+        floorLockStartMs = 0L;
     }
 
     private boolean phaseMechanicSatisfied() {
@@ -296,15 +422,16 @@ public final class BossInstance {
         }
     }
 
-    /** Grace period before the floor gives up and lets the fight through anyway — a safety valve, not the intended path. */
-    private static final long FLOOR_LOCK_TIMEOUT_MS = 45_000L;
-
     /**
-     * True once the current phase's mandatory mechanic has been left unresolved past
-     * {@link #FLOOR_LOCK_TIMEOUT_MS} — a broken or unreachable weak-point set (griefed terrain, a
+     * True once the current phase's mandatory mechanic has been left <em>entirely</em> unengaged past
+     * {@link Boss#phaseFloorTimeoutMs()} — a broken or unreachable weak-point set (griefed terrain, a
      * disconnected solo player) must not be able to hard-lock the fight forever, so past the grace
-     * period the floor stops gating. The clock is reset (elsewhere) whenever the mechanic is actually
-     * satisfied or the phase changes.
+     * period the floor stops gating. The clock is reset whenever the mechanic is satisfied, whenever the
+     * phase changes, and on any partial progress via {@link #recordProgress()}.
+     * <p>
+     * Logged when it fires, once per phase. A silent valve is indistinguishable from a phase gate that
+     * was never wired up — which is exactly how it read in play: four phases handed over on the timer,
+     * every objective still standing, and nothing anywhere saying why.
      */
     private boolean floorLockTimedOut() {
         long now = System.currentTimeMillis();
@@ -312,7 +439,17 @@ public final class BossInstance {
             floorLockStartMs = now;
             return false;
         }
-        return now - floorLockStartMs > FLOOR_LOCK_TIMEOUT_MS;
+        if (now - floorLockStartMs <= boss.phaseFloorTimeoutMs()) {
+            return false;
+        }
+        if (!floorLockTimeoutLogged) {
+            floorLockTimeoutLogged = true;
+            plugin.getLogger().warning(() -> "Boss '" + boss.id() + "' phase '" + currentPhase.name()
+                    + "' handed over its health seam on the floor-lock timeout — its objective went "
+                    + boss.phaseFloorTimeoutMs() + "ms without any progress. The mechanic was bypassed, "
+                    + "not completed.");
+        }
+        return true;
     }
 
     /**
@@ -619,6 +756,42 @@ public final class BossInstance {
     }
 
     /**
+     * The roster-wide "pits hurt, they don't remove you" rule, applied to anyone who has ended up far
+     * enough below the arena floor to count as having fallen into one.
+     * <p>
+     * Bosses across the roster delete the ground on purpose, and the design constraint on all of them
+     * is the same: falling in costs a large, survivable-at-full-health bite of the player's bar and
+     * puts them back on solid footing. It is deliberately expensive enough that repeated falls kill —
+     * the punishment stacks — without any single mistake ending someone's run. Paired with
+     * {@link ArenaSafetyListener}, which cancels the fall damage this replaces.
+     * <p>
+     * Deliberately keyed off depth below the arena rather than off any registry of carved pits: every
+     * mechanic that removes floor gets the behaviour for free, including ones that remove it by
+     * accident (a stray explosion, a crater under a crater), with no bookkeeping to fall out of sync.
+     */
+    private void enforcePitFloor() {
+        World world = arena.world();
+        if (world == null) {
+            return;
+        }
+        double floorY = arena.center().getY() - boss.pitDepth();
+        for (Player player : arena.playersInside()) {
+            if (!Arena.isCombatant(player) || player.getLocation().getY() > floorY) {
+                continue;
+            }
+            Location safe = player.getLocation().clone();
+            safe.setY(world.getHighestBlockYAt(safe.getBlockX(), safe.getBlockZ()) + 1.0);
+            // Lift first, damage second: taking the hit while still falling would let the vanilla
+            // death message read as a fall, and would stack another tick of pit checks on the way up.
+            player.teleport(safe);
+            player.setFallDistance(0f);
+            player.damage(Math.max(1.0, player.getMaxHealth() * boss.pitDamageFraction()), entity);
+            Fx.burst(safe, Particle.SMOKE, 30, 0.6);
+            Fx.sound(safe, Sound.ENTITY_GENERIC_BIG_FALL, 1.0f, 0.7f);
+        }
+    }
+
+    /**
      * The phase this tick should be running, from two independent sources that can each only push the
      * fight <em>forward</em>:
      * <ul>
@@ -725,6 +898,7 @@ public final class BossInstance {
         }
 
         arena.updateLiveCenter(entity.getLocation());
+        enforcePitFloor();
 
         double fraction = Math.max(0.0, Math.min(1.0, entity.getHealth() / maxHealth));
         BossPhase newPhase = selectPhase(fraction);
@@ -733,11 +907,15 @@ public final class BossInstance {
             currentPhase = newPhase;
             exposuresThisPhase = 0;
             floorLockStartMs = 0L;
+            floorLockTimeoutLogged = false;
             // Safety net: if a signature/trial attack set the boss forced-invulnerable for its window
             // and the health band was burned through before that window resolved, the flag would leak
             // and leave the boss permanently unhittable in the new phase. A phase change always clears
             // it — worst case the interrupted attack's window ends a beat early, never a stuck boss.
             forcedInvulnerable = false;
+            // Same reasoning as the invulnerability flag above: an override belongs to the mechanic that
+            // set it, and a phase change is the one moment we can guarantee that mechanic is gone.
+            targetOverride = null;
             if (entity.isValid()) {
                 entity.setGlowing(false);
             }
@@ -759,7 +937,8 @@ public final class BossInstance {
             }
         }
 
-        currentTarget = TargetSelector.select(arena, currentTarget);
+        Player overridden = overriddenTarget();
+        currentTarget = overridden != null ? overridden : TargetSelector.select(arena, currentTarget);
         barController.refresh(boss.displayName(), currentPhase, fraction, arena.playersNear(UI_PRESENCE_BUFFER));
         BossHologram.update(this, fraction);
 
@@ -824,6 +1003,16 @@ public final class BossInstance {
         // touching an entity mid vanilla-death-processing) would silently skip it and leave the boss
         // permanently "live" from the manager's point of view, blocking every future /bossspawn.
         try {
+            // First, before anything else can throw: a meter can have players rooted, blinded and
+            // bleeding right now, and those holds are the one piece of fight state that lives on the
+            // player rather than on the boss. Anything that skipped this would leave someone frozen in
+            // an empty arena with nothing left running to release them.
+            try {
+                meters.detachAll();
+            } catch (Exception e) {
+                plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                        "Meter teardown threw for boss '" + boss.id() + "' — players may keep a meter effect briefly.", e);
+            }
             for (BukkitTask task : tasks) {
                 if (!task.isCancelled()) {
                     task.cancel();
@@ -884,6 +1073,18 @@ public final class BossInstance {
                 }
             }
         } finally {
+            // In the finally block, and after every other teardown step: whatever else went wrong
+            // above, the world gets put back. A fight that threw partway through cleanup is exactly
+            // the case where leaving a half-melted arena behind would be worst.
+            //
+            // PLUGIN_DISABLE restores synchronously — no tick will ever run again, so a batched
+            // restore would never finish and the damage would become permanent at shutdown.
+            try {
+                ledger.restore(reason == EndReason.PLUGIN_DISABLE);
+            } catch (Exception e) {
+                plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                        "Arena restore failed for boss '" + boss.id() + "' — terrain damage may persist.", e);
+            }
             manager.forget(this);
         }
     }

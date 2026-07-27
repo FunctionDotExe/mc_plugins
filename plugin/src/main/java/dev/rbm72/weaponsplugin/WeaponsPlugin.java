@@ -37,7 +37,10 @@ import dev.rbm72.weaponsplugin.armor.sets.ShroudveilMantle;
 import dev.rbm72.weaponsplugin.armor.sets.StormplateAegis;
 import dev.rbm72.weaponsplugin.armor.sets.ThornweaveVestments;
 import dev.rbm72.weaponsplugin.armor.sets.WyrmwingPlate;
+import dev.rbm72.weaponsplugin.boss.ArenaSafetyListener;
 import dev.rbm72.weaponsplugin.boss.BossDamageListener;
+import dev.rbm72.weaponsplugin.boss.grief.ExplosionLedgerListener;
+import dev.rbm72.weaponsplugin.boss.grief.LedgerDropListener;
 import dev.rbm72.weaponsplugin.boss.BossManager;
 import dev.rbm72.weaponsplugin.boss.bosses.AmalgamatedBulk;
 import dev.rbm72.weaponsplugin.boss.bosses.DragonElder;
@@ -410,6 +413,13 @@ public final class WeaponsPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new MenuListener(this), this);
         getServer().getPluginManager().registerEvents(new BossMenuListener(this), this);
         getServer().getPluginManager().registerEvents(new BossDamageListener(bossManager), this);
+        // Explosions destroy terrain without going through Grief, so the ledger has to catch their
+        // block lists here or every crater becomes a permanent hole in an otherwise-clean rollback.
+        getServer().getPluginManager().registerEvents(new ExplosionLedgerListener(this), this);
+        // A fight's own blocks are put back by the ledger, so mining them out must not also pay — see
+        // LedgerDropListener: without it the Necro Overlord's corpse floor is a bone farm.
+        getServer().getPluginManager().registerEvents(new LedgerDropListener(this), this);
+        getServer().getPluginManager().registerEvents(new ArenaSafetyListener(bossManager), this);
         PlayerSummonTargetListener summonTargetListener = new PlayerSummonTargetListener(this);
         getServer().getPluginManager().registerEvents(summonTargetListener, this);
         getServer().getPluginManager().registerEvents(new ArenaTotemDamageListener(this), this);

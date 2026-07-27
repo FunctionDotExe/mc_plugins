@@ -87,10 +87,13 @@ public final class FireTrailAttack extends BossAttack {
                             Fx.trail(loc.clone().add(0, 0.3, 0), Particle.LAVA, 5, 0.25, 0.01);
                             Fx.point(loc.clone().add(0, 0.1, 0), Particle.SMALL_FLAME, 9);
                             // Leave real fire only when grief is enabled; never place blocks otherwise.
+                            // Routed through Grief.setBlock so the placement lands in the arena
+                            // ledger — fire written straight to the world would survive the fight's
+                            // rollback and keep spreading long after the boss was dead.
                             if (Grief.enabled(ctx)) {
                                 Block feet = loc.getBlock();
                                 if (feet.getType().isAir() && feet.getRelative(0, -1, 0).getType().isSolid()) {
-                                    feet.setType(Material.FIRE, false);
+                                    Grief.setBlock(ctx, feet, Material.FIRE);
                                 }
                             }
                             for (Entity nearby : boss.getNearbyEntities(hitRadius, hitRadius, hitRadius)) {

@@ -7,23 +7,17 @@ import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
-import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
 import dev.rbm72.weaponsplugin.boss.events.PullNukeEvent;
-import dev.rbm72.weaponsplugin.boss.mechanics.ParasiteAddMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.SharedPoolMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.TelegraphedEruptionMechanic;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.AfflictionAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.ArmyOfTheDeadAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BoneSpikesAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.BoneStormAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.DeathBoltAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.GraveGraspAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.MirrorOfTheDamnedAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.RaiseUndeadAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.SoulAnchorsAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.SoulDrainAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.WitherCloudAttack;
+import dev.rbm72.weaponsplugin.boss.bosses.necro.ArmyPhase;
+import dev.rbm72.weaponsplugin.boss.bosses.necro.HordePhase;
+import dev.rbm72.weaponsplugin.boss.bosses.necro.ReanimationPhase;
+import dev.rbm72.weaponsplugin.boss.bosses.necro.ShroudPhase;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.weapons.Soulharvester;
 import net.kyori.adventure.text.Component;
@@ -40,21 +34,47 @@ import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
-import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * The Necro Overlord — a lich-king of bone and soul-fire. Four phases
- * (100-75 / 75-40 / 40-15 / enrage &lt;15) built on a necromantic kit: raising
- * the dead, erupting bone spikes as its signature terrain grief, draining
- * souls to heal, and unleashing an entire undead legion in enrage.
+ * The Necro Overlord — a necromancer holding an army together under an artificial night.
+ * <p>
+ * He is the roster's horde-control and denial boss, and he is built on the best rule vanilla Minecraft
+ * offers: <b>undead burn in daylight</b>. He blots the sky out with a real block canopy; the group tears
+ * the canopy's anchors down and lets the sun finish his army for them. No other boss here is solved by
+ * changing the weather over your own head.
+ * <p>
+ * The loop is never "kill the adds". The horde regenerates from grave markers he plants and from corpse
+ * piles — real bone blocks left where each undead fell, which get back up unless somebody mines them out.
+ * So the group holds a chokepoint (the arena hands out the cobble and scaffolding to build one), breaks the
+ * graves, mines the dead, and opens the sky. Killing faster makes the corpse problem worse, which is why a
+ * five-player group buries its own arena and a solo player never does.
+ * <p>
+ * <b>Four phases, none of which ends on health.</b> Each one pins its health seam until its objective has
+ * actually been played — see {@code NecroPhaseMechanic} for how the two framework levers combine:
+ * <ol>
+ *   <li><b>The Horde</b> (100–76%) — exits on two grave markers destroyed.</li>
+ *   <li><b>The Shroud</b> (76–50%) — exits on the shroud broken at least once.</li>
+ *   <li><b>Reanimation</b> (50–22%) — exits on the corpse floor cleared below a threshold.</li>
+ *   <li><b>Army of the Dead</b> (&lt;22%) — he steps out of the back line and the sun stays up for good.</li>
+ * </ol>
+ * <b>What gates him is where he stands, not a shield.</b> He is hittable for every second of this fight:
+ * no phase sets a damage multiplier, no phase filters a hit, and nothing here is ever invulnerable. Until
+ * P4 he simply keeps stepping back to the far side of the arena whenever the group closes, so reaching him
+ * costs ground rather than permission. That distinction is deliberate — "the boss is immune while you break
+ * an objective" was removed from four bosses in this roster after five of them independently arrived at it.
  */
 public final class NecroOverlord extends Boss {
 
     private static final Color BONE = Color.fromRGB(235, 235, 210);
     private static final Color NECROTIC = Color.fromRGB(120, 200, 110);
+
+    /** Health-fraction seams, shared between the phase list and the mechanics that must not cross them early. */
+    private static final double SHROUD_ENTRY = 0.76;
+    private static final double REANIMATION_ENTRY = 0.50;
+    private static final double ARMY_ENTRY = 0.22;
 
     private final List<BossPhase> phases;
     private final LootTable lootTable;
@@ -62,44 +82,38 @@ public final class NecroOverlord extends Boss {
     public NecroOverlord(WeaponsPlugin plugin) {
         super(plugin);
 
-        RaiseUndeadAttack raiseUndead = new RaiseUndeadAttack(plugin);
         BoneSpikesAttack boneSpikes = new BoneSpikesAttack(plugin);
         DeathBoltAttack deathBolt = new DeathBoltAttack(plugin);
         GraveGraspAttack graveGrasp = new GraveGraspAttack(plugin);
         SoulDrainAttack soulDrain = new SoulDrainAttack(plugin);
         WitherCloudAttack witherCloud = new WitherCloudAttack(plugin);
-        BoneStormAttack boneStorm = new BoneStormAttack(plugin);
         ArmyOfTheDeadAttack armyOfTheDead = new ArmyOfTheDeadAttack(plugin);
-        SoulAnchorsAttack soulAnchors = new SoulAnchorsAttack(plugin);
-        MirrorOfTheDamnedAttack mirror = new MirrorOfTheDamnedAttack(plugin);
-        AfflictionAttack necroticDecay = new AfflictionAttack(plugin, "necro_overlord", "Necrotic Decay", NECROTIC,
-                Sound.ENTITY_WITHER_AMBIENT);
 
         this.phases = List.of(
-                // Grave Bloom: gravestones sprout under whoever stands still and the hands beneath them
-                // grab. A footwork opener — nothing is gated, the ground simply objects to camping.
-                new BossPhase("Grave Bloom", 1.0,
-                        List.of(raiseUndead, boneSpikes, deathBolt, graveGrasp),
-                        false, NecroOverlord::onEnterPhase1,
-                        this::graveBloom),
-                // Bound Trio: his signature, and the roster's one true coordination check. Three wraiths
-                // share one life and the binding drains only by damage all three took together, so no
-                // amount of focused damage from one player moves it at all.
-                new BossPhase("The Dead Rise", 0.75,
-                        List.of(soulDrain, witherCloud, raiseUndead, boneSpikes, soulAnchors, necroticDecay),
-                        false, NecroOverlord::onEnterPhase2,
-                        this::boundTrio),
-                // Soul Harvest: an orb latches onto one of you, drains them and feeds him while it
-                // lives. He never stops being hittable — the group is choosing where damage goes.
-                new BossPhase("Necropolis", 0.40,
-                        List.of(boneStorm, soulDrain, witherCloud, graveGrasp, soulAnchors, mirror, necroticDecay),
-                        false, NecroOverlord::onEnterPhase3,
-                        this::soulHarvest),
-                // Ungated: nothing left to hide behind, just the whole army and the lich swinging.
-                new BossPhase("Army of the Dead", 0.15,
-                        List.of(boneSpikes, deathBolt, graveGrasp, soulDrain, boneStorm, armyOfTheDead, soulAnchors,
-                                mirror),
-                        true, NecroOverlord::onEnterEnrage));
+                // The Horde: waves walk in from lit lanes while he plants graves behind them. Bone Spikes
+                // and Death Bolt are what a boss standing at the back of his own army can still reach you
+                // with; Grave Grasp is the rent on standing still inside the chokepoint you just built.
+                new BossPhase("The Horde", 1.0,
+                        List.of(boneSpikes, deathBolt, graveGrasp),
+                        false, NecroOverlord::onEnterHorde,
+                        instance -> new HordePhase(instance, SHROUD_ENTRY)),
+                // The Shroud: the canopy goes up and the fight splits between the ground and the anchors.
+                // Soul Drain joins here because the horde is now dense enough for him to feed off it.
+                new BossPhase("The Shroud", SHROUD_ENTRY,
+                        List.of(deathBolt, graveGrasp, witherCloud, soulDrain),
+                        false, NecroOverlord::onEnterShroud,
+                        instance -> new ShroudPhase(instance, REANIMATION_ENTRY)),
+                // Reanimation: the arena clogs with the group's own kills. Wither Cloud matters most here —
+                // it takes away floor at exactly the point the group needs somewhere to stand and mine.
+                new BossPhase("Reanimation", REANIMATION_ENTRY,
+                        List.of(boneSpikes, deathBolt, graveGrasp, witherCloud, soulDrain),
+                        false, NecroOverlord::onEnterReanimation,
+                        instance -> new ReanimationPhase(instance, ARMY_ENTRY)),
+                // Army of the Dead: he commits everything and finally comes forward himself.
+                new BossPhase("Army of the Dead", ARMY_ENTRY,
+                        List.of(boneSpikes, deathBolt, graveGrasp, witherCloud, soulDrain, armyOfTheDead),
+                        true, NecroOverlord::onEnterArmy,
+                        ArmyPhase::new));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Soulharvester(plugin).createItem())
@@ -120,6 +134,11 @@ public final class NecroOverlord extends Boss {
                 .decoration(TextDecoration.BOLD, true);
     }
 
+    /**
+     * A wither skeleton, and that is load-bearing rather than flavour: vanilla exempts wither skeletons from
+     * sunlight while burning every rank in his army under it. When the shroud comes down, the sun takes his
+     * legion apart and leaves him standing in it.
+     */
     @Override
     public EntityType baseEntityType() {
         return EntityType.WITHER_SKELETON;
@@ -136,68 +155,48 @@ public final class NecroOverlord extends Boss {
     }
 
     /**
-     * Grave Bloom: headstones break the surface under anyone standing still, and the hands beneath
-     * them root whoever is slow to move off. The snare matters more than the damage — his whole kit
-     * is still firing while you are held.
+     * Four times the roster default, because every objective he has is block work rather than a burst
+     * window.
+     * <p>
+     * The framework's floor-lock valve releases a phase's health seam once its objective has gone
+     * untouched for this long, as a guard against an unreachable weak point. At the default 45 seconds
+     * this boss did not gate anything at all: breaking two grave markers while a horde walks in, climbing
+     * to four anchors, and mining a corpse floor out are all minute-scale jobs, so all four phases handed
+     * themselves over on the timer with their objectives still standing — and swinging at him was strictly
+     * faster than playing the fight. The valve now waits three minutes, and
+     * {@code NecroPhaseMechanic#progressSignal} resets that clock on every grave, anchor and pile, so it
+     * can only ever fire on a fight making no headway whatsoever.
      */
-    private PhaseMechanic graveBloom(BossInstance instance) {
-        return new TelegraphedEruptionMechanic(instance, "Grave Bloom", NECROTIC,
-                Particle.SOUL, Sound.BLOCK_BONE_BLOCK_BREAK, Sound.ENTITY_ZOMBIE_AMBIENT,
-                configInt("grave-bloom-interval-ticks", 75),
-                configInt("grave-bloom-telegraph-ticks", 34),
-                configDouble("grave-bloom-radius", 2.8),
-                configDouble("grave-bloom-damage", 11.0),
-                configInt("grave-bloom-snare-ticks", 45),
-                configInt("grave-bloom-marks-per-volley", 3));
+    @Override
+    public int phaseFloorTimeoutMs() {
+        return configInt("phase-floor-timeout-ms", 180_000);
     }
 
     /**
-     * Bound Trio: three wraiths, one shared life, and a binding that only gives ground to damage all
-     * three of them took inside the same window. He is blunted rather than immune while it stands, so
-     * a group that cannot split its damage still finishes — just much later.
+     * The one boss in the roster whose arena must stay buildable and breakable.
+     * <p>
+     * Every objective he has is block work the players do with their own hands: mining corpse piles out
+     * before they rise, walling a lane off to funnel the horde, towering up to the shroud anchors. The
+     * default WorldGuard build-lock exists to stop players quarrying an escape route mid-fight, and it
+     * would silently delete three of this boss's four phases — the mechanics would still run and the group
+     * would simply be unable to interact with any of them.
      */
-    private PhaseMechanic boundTrio(BossInstance instance) {
-        return new SharedPoolMechanic(instance, "Bound Trio", "Bound Wraith", NECROTIC,
-                EntityType.WITHER_SKELETON,
-                configInt("bound-trio-count", 3),
-                configDouble("bound-trio-pool", 120.0),
-                configDouble("bound-trio-display-health", 60.0),
-                configInt("bound-trio-sync-window-ticks", 80),
-                configInt("bound-trio-exposed-ticks", 170),
-                configDouble("bound-trio-exposed-multiplier", 2.2),
-                configInt("bound-trio-stagger-ticks", 60),
-                configInt("bound-trio-respawn-delay-ticks", 140),
-                configDouble("bound-trio-fail-heal-per-survivor", 12.0),
-                configDouble("bound-trio-spawn-radius", 6.0));
+    @Override
+    public boolean worldGuardProtectionEnabled() {
+        return configBoolean("worldguard-protection", false);
     }
 
     /**
-     * Soul Harvest: a tethered orb drains one player and feeds him the whole time it lives, and hands
-     * him a far bigger meal if it survives its window. Late roster, so failing it hardens him
-     * permanently as well as healing him (design rule 4).
+     * Just the pull — the dead hauling the group off its chokepoint and into the open, which is the exact
+     * failure state this boss punishes. Deliberately no hit-count shield: an absorbing wall that ignores
+     * damage for a window is the archetype this roster spent a design pass removing, and it has nothing to
+     * do with a boss whose pressure is positional.
      */
-    private PhaseMechanic soulHarvest(BossInstance instance) {
-        return new ParasiteAddMechanic(instance, "Soul Harvest", "Soul Tether", BONE,
-                EntityType.VEX,
-                configDouble("soul-harvest-health", 40.0),
-                true,
-                configInt("soul-harvest-window-ticks", 200),
-                configInt("soul-harvest-respawn-ticks", 140),
-                configDouble("soul-harvest-heal-per-second", 2.5),
-                configDouble("soul-harvest-drain-per-second", 2.0),
-                configDouble("soul-harvest-reattach-heal", 45.0),
-                configDouble("soul-harvest-reattach-hardening", 0.05),
-                configInt("soul-harvest-exposed-ticks", 150),
-                configDouble("soul-harvest-exposed-multiplier", 1.8));
-    }
-
-    /** Offset from his phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
     @Override
     public List<BossEvent> events() {
         return List.of(
-                new HitCountShieldEvent(plugin, id(), new double[] {0.88, 0.30}),
-                new PullNukeEvent(plugin, id(), new double[] {0.60, 0.24},
-                        "GRASP OF THE GRAVE", "The dead are pulling you in — break away"));
+                new PullNukeEvent(plugin, id(), new double[] {0.62, 0.34},
+                        "GRASP OF THE GRAVE", "The dead are pulling you off your line — break away"));
     }
 
     @Override
@@ -213,7 +212,7 @@ public final class NecroOverlord extends Boss {
 
     @Override
     public Component entranceSubtitle() {
-        return Component.text("A lich-king rises to command the dead", NamedTextColor.GRAY);
+        return Component.text("He holds the night, and the night holds his army", NamedTextColor.GRAY);
     }
 
     @Override
@@ -223,16 +222,15 @@ public final class NecroOverlord extends Boss {
 
     @Override
     public Component defeatSubtitle() {
-        return Component.text("The dead return to their rest", NamedTextColor.GRAY);
+        return Component.text("The sky is yours again", NamedTextColor.GRAY);
     }
 
-    private static void onEnterPhase1(BossInstance instance) {
+    private static void onEnterHorde(BossInstance instance) {
         Location loc = instance.entity().getLocation();
         EntityEquipment equipment = instance.entity().getEquipment();
         if (equipment != null) {
             equipment.setItemInMainHand(new ItemStack(Material.NETHERITE_SWORD));
         }
-        // The overlord takes the field wreathed in rising soul-fire and a crown of bone-white light.
         Fx.expandingRings(instance.plugin(), loc, Particle.SCULK_SOUL, 5.0, 4, 3L);
         Fx.coloredBurst(loc.clone().add(0, 1.5, 0), NECROTIC, 1.8f, 40, 0.7);
         Fx.burst(loc.clone().add(0, 1, 0), Particle.SOUL, 25, 0.6);
@@ -240,58 +238,38 @@ public final class NecroOverlord extends Boss {
         Fx.sound(loc, Sound.PARTICLE_SOUL_ESCAPE, 0.8f, 0.5f);
     }
 
-    private static void onEnterPhase2(BossInstance instance) {
+    private static void onEnterShroud(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // The Dead Rise: a swelling burst of souls erupts from the ground around the overlord.
-        Fx.burst(loc.clone().add(0, 1.2, 0), Particle.SCULK_SOUL, 45, 0.9);
-        Fx.coloredBurst(loc.clone().add(0, 1.2, 0), BONE, 1.6f, 40, 0.8);
+        // Reads upward on purpose: the phase's new thing is happening over the players' heads, and the
+        // canopy itself takes a few seconds to spread. The title confirms what the sky is already doing.
+        Fx.helixFrame(loc, Particle.SCULK_SOUL, 1.6, 6, 0, 4.0);
+        Fx.coloredBurst(loc.clone().add(0, 2.0, 0), BONE, 1.6f, 40, 0.8);
         Fx.expandingRings(instance.plugin(), loc, Particle.SOUL, 7.0, 3, 2L);
-        Fx.sound(loc, Sound.ENTITY_WITHER_SPAWN, 1.0f, 0.6f);
-        Fx.sound(loc, Sound.ENTITY_SKELETON_AMBIENT, 0.8f, 0.5f);
-        instance.showTitle(
-                Component.text("The Dead Rise", NamedTextColor.DARK_GREEN).decoration(TextDecoration.BOLD, true),
-                Component.text("The overlord's legion stirs beneath the soil", NamedTextColor.GRAY));
+        Fx.sound(loc, Sound.ENTITY_WITHER_SPAWN, 1.0f, 0.4f);
+        Fx.sound(loc, Sound.BLOCK_SCULK_SPREAD, 1.2f, 0.5f);
     }
 
-    private static void onEnterPhase3(BossInstance instance) {
+    private static void onEnterReanimation(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Necropolis: an inward-collapsing ring of soul-fire hardens around the overlord.
         Fx.burst(loc.clone().add(0, 1.2, 0), Particle.SOUL_FIRE_FLAME, 40, 0.7);
         Fx.coloredBurst(loc.clone().add(0, 1.2, 0), NECROTIC, 2.0f, 34, 0.8);
         for (int ring = 0; ring < 3; ring++) {
             Fx.coloredRing(loc, BONE, 1.4f, 6.0 - ring * 1.5, 20, ring * 0.6);
         }
         Fx.sound(loc, Sound.ENTITY_WITHER_AMBIENT, 1.0f, 0.5f);
-        Fx.sound(loc, Sound.BLOCK_SOUL_SAND_STEP, 0.8f, 0.4f);
-        instance.showTitle(
-                Component.text("Necropolis", NamedTextColor.GREEN).decoration(TextDecoration.BOLD, true),
-                Component.text("The very ground becomes a graveyard", NamedTextColor.GRAY));
+        Fx.sound(loc, Sound.BLOCK_BONE_BLOCK_BREAK, 1.0f, 0.4f);
     }
 
-    private static void onEnterEnrage(BossInstance instance) {
+    private static void onEnterArmy(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Army of the Dead: a towering soul helix and a spinning skull icon overhead.
         Fx.burst(loc.clone().add(0, 1, 0), Particle.SCULK_SOUL, 55, 0.8);
         Fx.coloredRing(loc, NECROTIC, 1.6f, 4.5, 24, 0);
         Fx.spinningIcon(instance.plugin(), loc.clone().add(0, 2.6, 0), Material.WITHER_SKELETON_SKULL, 1.4f, 100, 12.0);
-        new BukkitRunnable() {
-            int ticks = 0;
-
-            @Override
-            public void run() {
-                if (ticks >= 20 || !instance.entity().isValid()) {
-                    cancel();
-                    return;
-                }
-                Fx.helixFrame(instance.entity().getLocation(), Particle.SOUL, 1.3, 3, ticks * 0.5, ticks * 0.15);
-                ticks++;
-            }
-        }.runTaskTimer(instance.plugin(), 0L, 1L);
         Fx.sound(loc, Sound.ENTITY_WITHER_SPAWN, 1.2f, 0.6f);
         Fx.sound(loc, Sound.ENTITY_WITHER_DEATH, 1.0f, 0.7f);
         instance.showTitle(
                 Component.text("☠ ARMY OF THE DEAD ☠", NamedTextColor.GREEN).decoration(TextDecoration.BOLD, true),
-                Component.text("Rise, my legion — leave nothing living", NamedTextColor.GRAY));
+                Component.text("He steps forward himself — the sun has the rest", NamedTextColor.GRAY));
     }
 
     private static ItemStack graveboundArmor(Material material) {

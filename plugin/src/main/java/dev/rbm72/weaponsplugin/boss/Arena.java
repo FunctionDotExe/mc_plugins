@@ -55,12 +55,28 @@ public final class Arena {
         return center.getWorld();
     }
 
+    /**
+     * True for a point inside the fight as it stands <em>right now</em> — measured from
+     * {@link #updateLiveCenter the live combat anchor}, exactly like {@link #playersInside()} and
+     * {@link #playersNear(double)}.
+     * <p>
+     * This used to measure from the frozen spawn-time {@link #center()} while every presence check
+     * beside it measured from the live one, which meant the two could disagree about who was in the
+     * arena the moment a fight drifted — and a chased fight drifts constantly. It had no callers yet,
+     * so nothing was actually reading the wrong answer; it was a trap set for whoever wrote the first
+     * one. Aligned deliberately rather than deleted, because "is this location in the fight" is a
+     * question the mechanics in the roster redesign will genuinely need, and the answer has to be the
+     * same one the boss bar and target selection are already using.
+     * <p>
+     * Anything that instead wants the fixed geometry of the arena — a region guard, a ward that must
+     * not follow the boss around — should measure against {@link #center()} explicitly and say so.
+     */
     public boolean isInside(Location loc) {
         World world = center.getWorld();
         if (world == null || loc.getWorld() == null || !loc.getWorld().equals(world)) {
             return false;
         }
-        return loc.distanceSquared(center) <= radius * radius;
+        return loc.distanceSquared(liveCenter) <= radius * radius;
     }
 
     public List<Player> playersInside() {

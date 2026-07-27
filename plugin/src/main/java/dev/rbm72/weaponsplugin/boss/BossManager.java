@@ -31,6 +31,9 @@ import java.util.UUID;
 public final class BossManager {
 
     private static final long TICK_INTERVAL = 5L;
+
+    /** How far past an arena's radius an explosion still counts as that fight's damage to record. */
+    private static final double EXPLOSION_LEDGER_MARGIN = 24.0;
     private static final double MIN_SCALE = 1.0;
     private static final double MAX_SCALE = 2.5;
 
@@ -204,6 +207,34 @@ public final class BossManager {
 
     public Optional<BossInstance> instanceFor(UUID entityId) {
         return Optional.ofNullable(liveByEntity.get(entityId));
+    }
+
+    /**
+     * The live fight whose arena contains {@code loc}, if any.
+     * <p>
+     * Exists for terrain damage that doesn't come from a boss entity we can identify — an explosion, a
+     * lit TNT block — where the only thing we know is where it went off. Whatever fight owns that
+     * ground owns the undo log for it.
+     */
+    public Optional<BossInstance> instanceCovering(Location loc) {
+        if (loc == null || loc.getWorld() == null) {
+            return Optional.empty();
+        }
+        for (BossInstance instance : liveByBossId.values()) {
+            Arena arena = instance.arena();
+            World arenaWorld = arena.world();
+            if (arenaWorld == null || !arenaWorld.equals(loc.getWorld())) {
+                continue;
+            }
+            // Generous margin: attacks deliberately reach past the strict radius (thrown blocks land
+            // long, knockback shoves fights outward), and a blast just outside the line still has to
+            // be recorded or it punches a permanent hole through an otherwise clean rollback.
+            double reach = arena.radius() + EXPLOSION_LEDGER_MARGIN;
+            if (loc.distanceSquared(arena.center()) <= reach * reach) {
+                return Optional.of(instance);
+            }
+        }
+        return Optional.empty();
     }
 
     public boolean despawn(String id) {

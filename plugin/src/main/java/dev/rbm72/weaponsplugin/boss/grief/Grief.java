@@ -50,6 +50,58 @@ public final class Grief {
     }
 
     /**
+     * The single gate every <em>destructive</em> block write goes through: honours the grief switch,
+     * refuses anything the fight could not put back, records the original state, then makes the change.
+     * <p>
+     * Nothing here may write a block directly. Terrain damage is only safe to be as extreme as the
+     * roster demands because {@link ArenaLedger} is holding the undo log for all of it, and one
+     * unguarded {@code setType} is enough to leave a permanent hole in a rollback that otherwise
+     * looks like it worked.
+     * <p>
+     * Grief-gated, so a server that turns grief off gets no terrain damage at all rather than "no
+     * craters, but every primitive that happened to call this still rewrites the floor". Block work
+     * that <em>is</em> a mechanic rather than damage must say so with {@link #setMechanicBlock}.
+     *
+     * @return true if the block was actually changed.
+     */
+    public static boolean setBlock(AttackContext ctx, Block block, Material material) {
+        if (!enabled(ctx)) {
+            return false;
+        }
+        return write(ctx, block, material);
+    }
+
+    /**
+     * A block that <em>is</em> the mechanic — a corpse pile to mine out, a grave marker to break, a
+     * canopy blotting out the sky — rather than damage done to the arena.
+     * <p>
+     * Deliberately <b>not</b> gated on the grief switch, and the distinction is load-bearing: the switch
+     * exists so an admin can stop bosses wrecking the world, not so they can silently delete three of
+     * the Necro Overlord's four phases. Gating these would leave those phases running with nothing for
+     * players to interact with, which reads as a broken boss rather than a disabled feature. Still
+     * ledgered exactly like a destructive write, so the arena comes back clean either way.
+     *
+     * @return true if the block was actually changed.
+     */
+    public static boolean setMechanicBlock(AttackContext ctx, Block block, Material material) {
+        return write(ctx, block, material);
+    }
+
+    private static boolean write(AttackContext ctx, Block block, Material material) {
+        if (ArenaLedger.isProtected(block.getType())) {
+            return false;
+        }
+        if (!ctx.instance().ledger().record(block)) {
+            return false;
+        }
+        // applyPhysics=false: a boss carving a crater should not also trigger cascades of falling
+        // gravel and flowing liquids across the rest of the arena, which would damage blocks the
+        // ledger never recorded and never sees to restore.
+        block.setType(material, false);
+        return true;
+    }
+
+    /**
      * Real explosion (fire + block break) when grief on; a cosmetic explosion burst + sound when off.
      * The boss is already immune to explosion damage via {@code BossDamageListener} (non-player damage
      * to a boss is cancelled), so it never blows itself up.
@@ -93,11 +145,10 @@ public final class Grief {
                         continue;
                     }
                     Block block = world.getBlockAt(center.getBlockX() + x, center.getBlockY() + y, center.getBlockZ() + z);
-                    Material type = block.getType();
-                    if (type.isAir() || type == Material.BEDROCK || type == Material.BARRIER) {
+                    if (block.getType().isAir()) {
                         continue;
                     }
-                    block.setType(Material.AIR, false);
+                    setBlock(ctx, block, Material.AIR);
                 }
             }
         }
@@ -160,6 +211,99 @@ public final class Grief {
     }
 
     /**
+     * A block dropped from the ceiling that <em>stays</em> where it lands — the anvil barrage, the
+     * avalanche, the ice the Frost Queen shears off the roof.
+     * <p>
+     * Deliberately not a plain {@link FallingBlock} left to place itself. Vanilla's own landing writes
+     * the block straight into the world without ever consulting {@link ArenaLedger}, so every anvil that
+     * came down would be a permanent addition to an arena the fight otherwise puts back perfectly — the
+     * one hole in the rollback that looks like it worked. Instead the entity is a pure visual: it never
+     * places and never drops, and this places the real block itself, through the ledger, at the column
+     * it came to rest in.
+     * <p>
+     * §0.1: the block landing is the mechanic. The impact damage is what makes standing under it a
+     * mistake, and the block staying is what makes the arena remember the mistake — cover to hide
+     * behind, or a tile nobody can stand on again.
+     *
+     * @param heightAbove  how far above {@code column} the block is spawned; the drop is the telegraph
+     * @param damage       dealt to combatants within {@code radius} of the impact
+     * @param onLand       nullable hook fired with the block's final location once it has settled
+     */
+    public static void dropAsBlock(AttackContext ctx, Location column, Material material, double heightAbove,
+                                    double damage, double radius, java.util.function.Consumer<Location> onLand) {
+        World world = column.getWorld();
+        if (world == null) {
+            return;
+        }
+        Location from = column.clone().add(0.5, heightAbove, 0.5);
+        if (ctx.instance().liveFallingBlockCount() >= ctx.instance().boss().maxFallingBlocks()) {
+            // Over the live-entity cap: land it immediately rather than silently skipping the hazard.
+            // The volley's danger ring has already been shown, and a telegraph that resolves into
+            // nothing is worse than one that resolves early.
+            settle(ctx, column, material, damage, radius, onLand);
+            return;
+        }
+        FallingBlock falling = world.spawnFallingBlock(from, material.createBlockData());
+        falling.setDropItem(false);
+        falling.setCancelDrop(true);
+        falling.setHurtEntities(false);
+        falling.setPersistent(false);
+        ctx.instance().trackEntity(falling);
+
+        new BukkitRunnable() {
+            int ticks;
+
+            @Override
+            public void run() {
+                if (!falling.isValid()) {
+                    cancel();
+                    return;
+                }
+                if (falling.isOnGround() || ticks++ >= 100) {
+                    Location impact = falling.getLocation();
+                    falling.remove();
+                    settle(ctx, impact, material, damage, radius, onLand);
+                    cancel();
+                    return;
+                }
+                Fx.trail(falling.getLocation(), Particle.SMOKE, 2, 0.1, 0.01);
+            }
+        }.runTaskTimer(ctx.plugin(), 1L, 1L);
+    }
+
+    /**
+     * The landing itself: everyone underneath pays, and the block becomes part of the arena.
+     * <p>
+     * Written with {@link #setMechanicBlock} rather than {@link #setBlock} because a landed anvil is
+     * cover and obstruction the design asks players to use, not damage done to the world — a server
+     * that has turned grief off should still get the barrage it has to dodge, only without the crater.
+     */
+    private static void settle(AttackContext ctx, Location impact, Material material, double damage,
+                                double radius, java.util.function.Consumer<Location> onLand) {
+        World world = impact.getWorld();
+        if (world == null) {
+            return;
+        }
+        for (Player player : dev.rbm72.weaponsplugin.boss.Arena.combatants(impact, radius)) {
+            player.damage(damage, ctx.boss());
+        }
+        Block resting = world.getBlockAt(impact);
+        // Walk up out of whatever it settled inside, so a block landing in a one-deep crater does not
+        // silently overwrite the floor it fell into.
+        for (int i = 0; i < 3 && !resting.getType().isAir(); i++) {
+            resting = resting.getRelative(0, 1, 0);
+        }
+        if (resting.getType().isAir()) {
+            setMechanicBlock(ctx, resting, material);
+        }
+        Fx.blockBurst(impact, material, 26, 0.5);
+        Fx.sound(impact, Sound.BLOCK_ANVIL_LAND, 1.0f, 0.7f);
+        if (onLand != null) {
+            onLand.accept(resting.getLocation());
+        }
+    }
+
+    /**
      * Raise {@code count} vertical columns of {@code material}, {@code height} tall, scattered within
      * {@code spread} blocks of {@code base}. Grief on -> real placed blocks (permanent). Grief off ->
      * self-removing {@link BlockDisplay} props (tracked, auto-removed after {@code durationTicks}).
@@ -179,7 +323,7 @@ public final class Grief {
                 for (int y = 0; y < height; y++) {
                     Block block = world.getBlockAt(col.getBlockX(), col.getBlockY() + y, col.getBlockZ());
                     if (block.getType().isAir() || block.isLiquid()) {
-                        block.setType(material, false);
+                        setBlock(ctx, block, material);
                     }
                 }
             } else {
@@ -229,8 +373,8 @@ public final class Grief {
                 }
                 Block ground = world.getHighestBlockAt(center.getBlockX() + x, center.getBlockZ() + z);
                 if (grief) {
-                    if (!ground.getType().isAir() && ground.getType() != Material.BEDROCK) {
-                        ground.setType(to, false);
+                    if (!ground.getType().isAir()) {
+                        setBlock(ctx, ground, to);
                     }
                 } else {
                     Fx.burst(ground.getLocation().add(0.5, 1, 0.5), Particle.SPORE_BLOSSOM_AIR, 2, 0.2);

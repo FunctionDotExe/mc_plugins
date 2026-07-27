@@ -40,6 +40,11 @@ public final class BossBarController {
         });
     }
 
+    /** Whether this player currently has the health bar on screen — one line of their boss-bar stack. */
+    public boolean isShowingTo(Player player) {
+        return player != null && viewers.contains(player.getUniqueId());
+    }
+
     public void hideAll() {
         for (UUID id : viewers) {
             Player player = Bukkit.getPlayer(id);

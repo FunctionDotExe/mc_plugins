@@ -92,10 +92,12 @@ public final class LavaWaveAttack extends BossAttack {
                                 Fx.point(p.clone().add(0, 0.4, 0), Particle.LAVA, 2);
                             }
                             Fx.coloredBurst(front.clone().add(0, 0.5, 0), EMBER, 1.5f, 20, waveWidth * 0.5);
+                            // Through Grief.setBlock, not the block directly, so the ledger records it
+                            // and the rollback can put the burnt ground back.
                             if (Grief.enabled(ctx)) {
                                 Block feet = front.getBlock();
                                 if (feet.getType().isAir() && feet.getRelative(0, -1, 0).getType().isSolid()) {
-                                    feet.setType(Material.FIRE, false);
+                                    Grief.setBlock(ctx, feet, Material.FIRE);
                                 }
                             }
                             for (Entity nearby : front.getWorld().getNearbyEntities(front, waveWidth, 3.0, waveWidth)) {

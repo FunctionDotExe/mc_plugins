@@ -38,7 +38,12 @@ public final class ArmyOfTheDeadAttack extends BossAttack {
     public ArmyOfTheDeadAttack(WeaponsPlugin plugin) {
         super(plugin, "necro_overlord");
         this.summonCount = configInt("army-of-the-dead-count", 6);
-        this.maxAdds = configInt("army-of-the-dead-max-adds", 10);
+        // Above the standing horde's own live-add cap on purpose. This gate counts every add in the
+        // fight, and the Overlord's P4 already has a full wave-driven horde on the floor — at the old
+        // default of 10 the enrage legion silently never spawned a single undead, because the cap was
+        // already exceeded before the attack ever ran. It has to sit above the horde ceiling to be the
+        // surge it is written as.
+        this.maxAdds = configInt("army-of-the-dead-max-adds", 30);
         this.damage = configDouble("army-of-the-dead-damage", 12.0);
         this.radius = configDouble("army-of-the-dead-radius", 6.0);
         this.witherRadius = configDouble("army-of-the-dead-wither-radius", 14.0);

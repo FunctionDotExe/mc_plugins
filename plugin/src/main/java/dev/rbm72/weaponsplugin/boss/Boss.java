@@ -102,9 +102,115 @@ public abstract class Boss {
         return plugin.getConfig().getBoolean("bosses." + id() + "." + key, def);
     }
 
+    protected final String configString(String key, String def) {
+        return plugin.getConfig().getString("bosses." + id() + "." + key, def);
+    }
+
     /** Master grief switch for this boss. Default on — bosses are destructive unless disabled. */
     public boolean griefEnabled() {
         return configBoolean("grief", true);
+    }
+
+    /**
+     * Whether everything this fight does to the world is written down and rolled back when it ends.
+     * Default on, and it is what allows bosses to be as destructive as they are: with restore in place
+     * an attack can flood the floor with lava or delete it outright, because none of it outlives the
+     * fight. Turning this off restores the old permanent-scar behaviour, in which case the roster's
+     * heavier terrain attacks will grind an arena down over repeated clears.
+     */
+    public boolean arenaRestoreEnabled() {
+        return configBoolean("arena-restore", true);
+    }
+
+    /**
+     * Hard ceiling on distinct blocks one fight may damage. Doubles as the grief-scope cap: the ledger
+     * refuses any change past this, so a fight can never wreck more of the world than it can put back.
+     */
+    public int maxLedgerBlocks() {
+        return configInt("max-ledger-blocks", 120_000);
+    }
+
+    /** Blocks restored per tick when the fight ends — bounds the rollback's own lag cost. */
+    public int restoreBlocksPerTick() {
+        return configInt("restore-blocks-per-tick", 4000);
+    }
+
+    /**
+     * How far below the arena floor a player counts as having fallen into a pit. Anything this deep is
+     * treated as "the floor gave out under you" regardless of which mechanic removed it.
+     */
+    public double pitDepth() {
+        return configDouble("pit-depth", 6.0);
+    }
+
+    /**
+     * Fraction of a player's max health a pit fall costs. Tuned so a single fall at full health is
+     * survivable and a second one shortly after is not — the punishment is meant to stack, so that
+     * carelessness with the arena kills while one mistake never does.
+     */
+    public double pitDamageFraction() {
+        return configDouble("pit-damage-fraction", 0.55);
+    }
+
+    // ------------------------------------------------------------ player meters
+
+    /**
+     * Master switch for this boss's armour-ignoring, non-healable player meters (Chill, Static Charge,
+     * Infection, Void Echo — see {@code boss.meter}). Default on; turning it off makes every attached
+     * meter inert rather than absent, so a boss built around one still runs, just without its clock.
+     */
+    public boolean metersEnabled() {
+        return configBoolean("meters", true);
+    }
+
+    /**
+     * Ticks between meter pulses. Every rate a meter is configured with is per <em>second</em>, so this
+     * only changes the resolution of the clock, never its speed — five ticks keeps the readout smooth
+     * and keeps the block scans behind the campfire/lightning-rod cures to four passes a second.
+     */
+    public int meterTickInterval() {
+        return configInt("meter-tick-interval", 5);
+    }
+
+    /**
+     * Which channel this boss's meter readout is drawn on — {@code bar} for a boss bar of its own,
+     * {@code action-bar} for the merged action-bar line, or {@code auto}.
+     * <p>
+     * Default {@code auto}: a boss bar while the player's stack still has room for one, the action bar
+     * once it does not. A meter is fight-long and must be readable at all times, and a fight already
+     * owns the health bar and the mechanic bar — three tiled bars is where the names start colliding
+     * with the bar above and all three stop being readable. See
+     * {@link dev.rbm72.weaponsplugin.boss.meter.MeterRegistry}.
+     */
+    public String meterChannel() {
+        return configString("meter-channel", "auto");
+    }
+
+    /**
+     * How many of this fight's boss bars a player may already be seeing before {@code auto} moves the
+     * meter readout off the stack. Two — health plus the mechanic bar — is the point past which a third
+     * bar costs more legibility than it adds.
+     */
+    public int meterBarStackLimit() {
+        return configInt("meter-bar-stack-limit", 2);
+    }
+
+    /**
+     * Per-skin tunable, read as {@code bosses.<boss>.meter.<meter>.<key>}. Every rate, radius and
+     * damage number a {@link dev.rbm72.weaponsplugin.boss.meter.MeterSpec} is built from should come
+     * through here: a meter is the one system in a fight that is deliberately unanswerable by gear or
+     * healing, so it is the one most likely to need retuning without a recompile.
+     */
+    public double meterDouble(String meterId, String key, double def) {
+        return configDouble("meter." + meterId + "." + key, def);
+    }
+
+    public int meterInt(String meterId, String key, int def) {
+        return configInt("meter." + meterId + "." + key, def);
+    }
+
+    public boolean meterBoolean(String meterId, String key, boolean def) {
+        return configBoolean("meter." + meterId + "." + key, def);
     }
 
     /** Whether this boss gets a DecentHolograms name/health-bar hologram (if that plugin is installed). Default on. */
@@ -165,5 +271,20 @@ public abstract class Boss {
     /** Floor on {@code phaseCooldownScale} — cooldowns never shrink past this fraction of authored. */
     public double phaseCooldownFloor() {
         return configDouble("phase-cooldown-floor", 0.45);
+    }
+
+    /**
+     * How long {@code BossInstance#clampToPhaseFloor} pins a phase's health seam while its objective
+     * goes <em>completely</em> unengaged before giving up and letting the fight through.
+     * <p>
+     * A safety valve against an unreachable objective, never a route through one. The clock resets on
+     * any progress at all ({@code BossInstance#recordProgress}), so this is the time a group can spend
+     * making <b>zero</b> headway — not the time the objective is allowed to take. Override it upward for
+     * a boss whose objectives are block work rather than a burst window: mining a corpse floor out or
+     * breaking two grave markers under horde pressure legitimately opens with a long stretch of nothing
+     * measurable happening, and a valve short enough to cover that hands over every phase for free.
+     */
+    public int phaseFloorTimeoutMs() {
+        return configInt("phase-floor-timeout-ms", 45_000);
     }
 }
