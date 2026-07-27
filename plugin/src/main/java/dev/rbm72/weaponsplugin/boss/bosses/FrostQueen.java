@@ -199,20 +199,20 @@ public final class FrostQueen extends Boss {
 
     private static void onEnterPhase2(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Winter deepens: a swirling snow-storm burst engulfs the arena.
+        // The Shattering: a swirling snow-storm burst engulfs the arena as the ceiling starts to give.
         Fx.burst(loc.clone().add(0, 1.2, 0), Particle.SNOWFLAKE, 45, 0.9);
         Fx.coloredBurst(loc.clone().add(0, 1.2, 0), PALE_ICE, 1.6f, 40, 0.8);
         Fx.expandingRings(instance.plugin(), loc, Particle.SNOWFLAKE, 7.0, 3, 2L);
         Fx.sound(loc, Sound.WEATHER_RAIN, 1.0f, 0.6f);
         Fx.sound(loc, Sound.ENTITY_PLAYER_HURT_FREEZE, 0.8f, 0.8f);
         instance.showTitle(
-                Component.text("Winter Deepens", NamedTextColor.AQUA).decoration(TextDecoration.BOLD, true),
-                Component.text("The queen calls the storm to her side", NamedTextColor.GRAY));
+                Component.text("The Shattering", NamedTextColor.AQUA).decoration(TextDecoration.BOLD, true),
+                Component.text("The ceiling itself starts to give", NamedTextColor.GRAY));
     }
 
     private static void onEnterPhase3(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Heart of Ice: an inward-collapsing ring of frost hardening around the queen.
+        // Heart of Winter: an inward-collapsing ring of frost as she seals herself away.
         Fx.burst(loc.clone().add(0, 1.2, 0), Particle.ITEM_SNOWBALL, 40, 0.7);
         Fx.coloredBurst(loc.clone().add(0, 1.2, 0), FROST_BLUE, 2.0f, 34, 0.8);
         for (int ring = 0; ring < 3; ring++) {
@@ -221,21 +221,21 @@ public final class FrostQueen extends Boss {
         Fx.sound(loc, Sound.BLOCK_GLASS_BREAK, 1.0f, 0.5f);
         Fx.sound(loc, Sound.ENTITY_PLAYER_HURT_FREEZE, 0.7f, 0.4f);
         instance.showTitle(
-                Component.text("Heart of Ice", NamedTextColor.DARK_AQUA).decoration(TextDecoration.BOLD, true),
-                Component.text("No warmth remains in her frozen heart", NamedTextColor.GRAY));
+                Component.text("Heart of Winter", NamedTextColor.DARK_AQUA).decoration(TextDecoration.BOLD, true),
+                Component.text("Bring fire to her frozen heart", NamedTextColor.GRAY));
     }
 
     private static void onEnterEnrage(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Absolute Winter: a towering frost helix and a spinning ice crown overhead.
+        // Absolute Zero: a towering frost helix and a spinning ice crown overhead.
         Fx.burst(loc.clone().add(0, 1, 0), Particle.SNOWFLAKE, 55, 0.8);
         Fx.coloredRing(loc, FROST_BLUE, 1.6f, 4.5, 24, 0);
         Fx.spinningIcon(instance.plugin(), loc.clone().add(0, 2.6, 0), Material.BLUE_ICE, 1.4f, 100, 12.0);
         Fx.sound(loc, Sound.ENTITY_PLAYER_HURT_FREEZE, 1.2f, 0.4f);
         Fx.sound(loc, Sound.ENTITY_GENERIC_EXPLODE, 1.0f, 0.5f);
         instance.showTitle(
-                Component.text("❄ ABSOLUTE WINTER ❄", NamedTextColor.WHITE).decoration(TextDecoration.BOLD, true),
-                Component.text("She will bury this world in ice", NamedTextColor.GRAY));
+                Component.text("❄ ABSOLUTE ZERO ❄", NamedTextColor.WHITE).decoration(TextDecoration.BOLD, true),
+                Component.text("Only the campfires' light will save you", NamedTextColor.GRAY));
     }
 
     private static ItemStack dyedArmor(Material material) {

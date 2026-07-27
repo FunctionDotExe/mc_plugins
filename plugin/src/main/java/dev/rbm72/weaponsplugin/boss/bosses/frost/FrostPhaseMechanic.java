@@ -11,7 +11,6 @@ import org.bukkit.Location;
 import org.bukkit.Sound;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
-import org.bukkit.entity.Player;
 
 /**
  * Shared body of all four of the Frost Queen's phases: the ice field keeps growing, the Heart keeps
@@ -138,10 +137,5 @@ abstract class FrostPhaseMechanic extends TickingMechanic {
                 .append(readoutText());
         instance.mechanicBar().updateShared(instance.barViewers(), text, readoutProgress(),
                 objectiveMet() ? BossBar.Color.GREEN : BossBar.Color.BLUE);
-    }
-
-    /** Everyone currently fighting her — shared shorthand the phase subclasses lean on repeatedly. */
-    protected java.util.List<Player> combatants() {
-        return fight.combatants();
     }
 }
