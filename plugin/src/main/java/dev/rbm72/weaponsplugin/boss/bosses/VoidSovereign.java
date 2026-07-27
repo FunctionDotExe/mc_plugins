@@ -7,12 +7,9 @@ import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
 import dev.rbm72.weaponsplugin.boss.events.ConvergenceNukeEvent;
 import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
-import dev.rbm72.weaponsplugin.boss.mechanics.BlinkSnareMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.DecoyMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.ForceFieldMechanic;
+import dev.rbm72.weaponsplugin.boss.bosses.sovereign.SovereignPhases;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.ArcaneMissilesAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BanishAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BlinkStrikeAttack;
@@ -43,8 +40,21 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * A void-touched enderman sovereign: four phases (100-75 / 75-40 / 40-15 /
- * enrage &lt;15) of blink-strikes, arcane volleys, and reality-tearing rifts.
+ * The Void Sovereign — an End-touched arena being unmade beneath you. Four phases
+ * (100-72 / 72-45 / 45-18 / &lt;18), all built on {@code sovereign.SovereignPhases}: the Void Echo trail
+ * runs the whole fight, and each phase adds one more structural demand (batch-1 spec §5.3):
+ * <ol>
+ *   <li><b>Echoes</b> — delayed strikes on each player's own recent positions; the rule teaches itself
+ *       in about ten seconds.</li>
+ *   <li><b>Collapse</b> — real Void Rifts start opening, permanently, and a Singularity periodically
+ *       drags the group toward the centre.</li>
+ *   <li><b>Between</b> — he splits into three identical phantoms. Nothing is invulnerable — damage only
+ *       ever lands on the real one, told apart by a physical falling-block shadow. Optional end
+ *       crystals trade arena for clarity.</li>
+ *   <li><b>The Unmaking</b> — a small piston-edged platform network is all that's left; chorus fruit
+ *       and caught pearls are the only survival kit.</li>
+ * </ol>
+ * Nothing in any of the four bands is ever invulnerable; see {@code SovereignPhaseMechanic}'s header.
  */
 public final class VoidSovereign extends Boss {
 
@@ -70,28 +80,29 @@ public final class VoidSovereign extends Boss {
         TwinRiftsAttack twinRifts = new TwinRiftsAttack(plugin);
 
         this.phases = List.of(
-                // Gravity Well: the floor pulls toward the middle for the whole band. Nothing is
-                // blocked — you simply cannot stand still, and every approach costs ground.
-                new BossPhase("Gravity Well", 1.0,
+                // Echoes: delayed strikes on each player's own recent positions. He is hittable the
+                // entire time — the ask is continuous movement, not standing and trading.
+                new BossPhase("Echoes", 1.0,
                         List.of(blinkStrike, arcaneMissiles, voidRift, banish),
                         false, VoidSovereign::onEnterPhase1,
-                        this::gravityWell),
-                // Ungated: reality is coming apart and he is not hiding behind any of it. Pure race.
-                new BossPhase("Reality Fractures", 0.75,
+                        instance -> SovereignPhases.echoes(instance, 0.72)),
+                // Collapse: real rifts start opening, permanently, and a Singularity drags the group
+                // toward the centre on a clock. Still fully hittable.
+                new BossPhase("Collapse", 0.72,
                         List.of(gravityFlip, singularity, blinkStrike, arcaneMissiles),
-                        false, VoidSovereign::onEnterPhase2),
-                // Mirrorflesh: his signature. He stops being one target, shuffles with his reflections,
-                // and swinging at the wrong one throws you across the room. Costs tempo, never damage.
-                new BossPhase("The Void Beckons", 0.40,
+                        false, VoidSovereign::onEnterPhase2,
+                        instance -> SovereignPhases.collapse(instance, 0.45)),
+                // Between: he splits into three identical phantoms. Never invulnerable — only the real
+                // one, told apart by its own falling-block shadow, ever actually takes damage.
+                new BossPhase("Between", 0.45,
                         List.of(voidZone, singularity, voidRift, banish, twinRifts),
                         false, VoidSovereign::onEnterPhase3,
-                        this::mirrorflesh),
-                // Blink Snare: he folds one of you out of the fight entirely. Nobody can go and help —
-                // the group is simply a member down until they solve their own way back.
-                new BossPhase("Unmaking", 0.15,
+                        instance -> SovereignPhases.between(instance, 0.18)),
+                // The Unmaking: a small piston-edged platform network is all that's left of the arena.
+                new BossPhase("The Unmaking", 0.18,
                         List.of(blinkStrike, arcaneMissiles, voidRift, gravityFlip, singularity, collapse, twinRifts),
                         true, VoidSovereign::onEnterEnrage,
-                        this::blinkSnare));
+                        SovereignPhases::theUnmaking));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Nullblade(plugin).createItem())
@@ -128,51 +139,7 @@ public final class VoidSovereign extends Boss {
         return lootTable;
     }
 
-    /**
-     * Gravity Well: a standing inward current for the whole band, with a lethal core at the middle.
-     * It re-tunes everything else happening at the same time — his blinks and rifts are far harder to
-     * sidestep when the floor is moving under you — without adding a single extra rule.
-     */
-    private PhaseMechanic gravityWell(BossInstance instance) {
-        return new ForceFieldMechanic(instance, "Gravity Well", VOID_PURPLE,
-                ForceFieldMechanic.Direction.INWARD, ForceFieldMechanic.Focus.ARENA_CENTRE,
-                configDouble("gravity-well-pull-per-tick", 0.055),
-                configDouble("gravity-well-core-radius", 5.0),
-                configDouble("gravity-well-core-damage-per-second", 8.0),
-                null);
-    }
-
-    /**
-     * Mirrorflesh: his signature. Reflections stand among him and they trade places on a clock; a
-     * swing at a copy blinks the attacker across the arena. He stays fully hittable throughout, so
-     * being fooled costs tempo and position rather than access.
-     */
-    private PhaseMechanic mirrorflesh(BossInstance instance) {
-        return new DecoyMechanic(instance, "Mirrorflesh", VOID_PURPLE, EntityType.ENDERMAN,
-                configInt("mirrorflesh-decoys", 3),
-                configInt("mirrorflesh-shuffle-ticks", 120),
-                configDouble("mirrorflesh-blink-distance", 18.0),
-                configDouble("mirrorflesh-blink-damage", 6.0),
-                configDouble("mirrorflesh-spawn-radius", 5.0),
-                configInt("mirrorflesh-refresh-ticks", 400));
-    }
-
-    /**
-     * Blink Snare: one player is folded into a bubble nobody else can reach, with a circling rift as
-     * their only way back. The group is briefly and genuinely a member down, which is a different
-     * pressure from any rescue mechanic — and it is solo-safe by construction.
-     */
-    private PhaseMechanic blinkSnare(BossInstance instance) {
-        return new BlinkSnareMechanic(instance, "Blink Snare", VOID_BLACK,
-                configDouble("blink-snare-bubble-radius", 6.0),
-                configInt("blink-snare-ticks", 160),
-                configInt("blink-snare-recast-ticks", 160),
-                configDouble("blink-snare-rift-degrees-per-second", 55.0),
-                configDouble("blink-snare-fail-damage", 20.0),
-                configInt("blink-snare-fail-disorient-ticks", 70));
-    }
-
-    /** Offset from his phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    /** Offset from his phase boundaries (0.72 / 0.45 / 0.18) so they land mid-phase, not on transitions. */
     @Override
     public List<BossEvent> events() {
         return List.of(
@@ -223,20 +190,20 @@ public final class VoidSovereign extends Boss {
 
     private static void onEnterPhase2(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Reality fractures: shattered-portal shrapnel and a collapsing void ring.
+        // Collapse: shattered-portal shrapnel and a collapsing void ring as the first rift opens.
         Fx.burst(loc.clone().add(0, 1.2, 0), Particle.PORTAL, 40, 0.7);
         Fx.coloredBurst(loc.clone().add(0, 1.2, 0), VOID_PURPLE, 1.6f, 30, 0.6);
         Fx.expandingRings(instance.plugin(), loc, Particle.REVERSE_PORTAL, 6.0, 3, 2L);
         Fx.sound(loc, Sound.BLOCK_GLASS_BREAK, 1.0f, 0.5f);
         Fx.sound(loc, Sound.ENTITY_ENDERMAN_SCREAM, 0.8f, 0.7f);
         instance.showTitle(
-                Component.text("Reality Fractures", NamedTextColor.DARK_PURPLE).decoration(TextDecoration.BOLD, true),
+                Component.text("Collapse", NamedTextColor.DARK_PURPLE).decoration(TextDecoration.BOLD, true),
                 Component.text("The world splinters around the Sovereign", NamedTextColor.GRAY));
     }
 
     private static void onEnterPhase3(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // The void beckons: inward-swirling rings collapsing onto the boss.
+        // Between: inward-swirling rings collapsing onto the boss as it splits into phantoms.
         Fx.burst(loc.clone().add(0, 1.2, 0), Particle.SQUID_INK, 35, 0.7);
         Fx.coloredBurst(loc.clone().add(0, 1.2, 0), VOID_BLACK, 2.0f, 30, 0.8);
         for (int ring = 0; ring < 3; ring++) {
@@ -245,13 +212,13 @@ public final class VoidSovereign extends Boss {
         Fx.sound(loc, Sound.BLOCK_PORTAL_AMBIENT, 1.0f, 0.4f);
         Fx.sound(loc, Sound.ENTITY_ENDERMAN_STARE, 0.8f, 0.5f);
         instance.showTitle(
-                Component.text("The Void Beckons", NamedTextColor.DARK_PURPLE).decoration(TextDecoration.BOLD, true),
-                Component.text("The emptiness reaches out to claim the arena", NamedTextColor.GRAY));
+                Component.text("Between", NamedTextColor.DARK_PURPLE).decoration(TextDecoration.BOLD, true),
+                Component.text("Find the one that casts a shadow", NamedTextColor.GRAY));
     }
 
     private static void onEnterEnrage(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Final unmaking: a void helix erupts around the Sovereign with a spinning shard overhead.
+        // The Unmaking: a void helix erupts around the Sovereign with a spinning shard overhead.
         Fx.burst(loc.clone().add(0, 1, 0), Particle.PORTAL, 90, 1.1);
         Fx.coloredBurst(loc.clone().add(0, 1, 0), VOID_PURPLE, 2.4f, 60, 1.1);
         for (int ring = 0; ring < 4; ring++) {

@@ -145,6 +145,18 @@ public final class FrostQueen extends Boss {
         return lootTable;
     }
 
+    /**
+     * Four times the roster default, same reasoning as the Fallen King: breaking a Frozen Prison,
+     * surviving an Avalanche sweep, and burning down the Frozen Heart are all physical acts under
+     * pressure rather than a burst window, and {@code FrostPhaseMechanic#progressSignal} resets the
+     * clock on every one of them. At the default 45 seconds the valve would fire on a group still
+     * actively working the mechanic, not just on one that has abandoned it.
+     */
+    @Override
+    public int phaseFloorTimeoutMs() {
+        return configInt("phase-floor-timeout-ms", 180_000);
+    }
+
     /** Offset from her phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
     @Override
     public List<BossEvent> events() {

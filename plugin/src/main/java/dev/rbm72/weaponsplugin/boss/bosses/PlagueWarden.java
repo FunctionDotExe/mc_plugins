@@ -7,12 +7,9 @@ import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
 import dev.rbm72.weaponsplugin.boss.events.ConvergenceNukeEvent;
 import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
-import dev.rbm72.weaponsplugin.boss.mechanics.ContagionLedgerMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.HazardPatchMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.TelegraphedEruptionMechanic;
+import dev.rbm72.weaponsplugin.boss.bosses.plague.PlaguePhases;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.AfflictionAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BlightSigilsAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.CorruptionSpreadAttack;
@@ -39,17 +36,27 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
-import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * The Plague Warden — a rotting harbinger of pestilence. Four phases
- * (100-75 / 75-40 / 40-15 / enrage &lt;15) built on a shared poison kit, with
- * Corruption Spread as the signature terrain-rotting move and an arena-wide
- * Pandemic outbreak in enrage.
+ * The Plague Warden — rot and sculk consuming an arena, and each other's bodies as the vector. Four
+ * phases (100-70 / 70-45 / 45-20 / &lt;20), all built on {@code plague.PlaguePhases}: the Infection meter
+ * and his pyres run the whole fight, and each phase adds one more structural demand (batch-1 spec §4.3):
+ * <ol>
+ *   <li><b>Contagion</b> — the Infection meter and pyres are taught; Bloated Carriers burst into a real
+ *       cleanse-or-punish cloud on death.</li>
+ *   <li><b>The Bloom</b> — real Spore Nodes corrupt the ground outward; destroy them or the whole floor
+ *       eventually turns hostile.</li>
+ *   <li><b>Host</b> — he burrows into a real sculk growth. He never goes invulnerable: only the
+ *       currently-cleansed land real hits while it stands, forcing a clean/infected role rotation — and
+ *       its sensors punish sprinting and jumping with a shriek.</li>
+ *   <li><b>Pandemic</b> — Infection rises everywhere regardless of position, and the pyres burn out one
+ *       by one.</li>
+ * </ol>
+ * He is never invulnerable in any of the four bands; see {@code PlaguePhaseMechanic}'s header.
  */
 public final class PlagueWarden extends Boss {
 
@@ -76,30 +83,31 @@ public final class PlagueWarden extends Boss {
                 Sound.ENTITY_ZOMBIE_VILLAGER_CURE);
 
         this.phases = List.of(
-                // Spore Cloud Maze: the floor keeps closing. Nothing is gated — the arena simply gets
-                // smaller and more poisonous while he fights, so standing still stops being an option.
-                new BossPhase("Spore Bloom", 1.0,
+                // Contagion: the Infection meter and pyres are taught, and Bloated Carriers walk in.
+                // He is hittable the entire time — the ask is spacing and managed add-killing.
+                new BossPhase("Contagion", 1.0,
                         List.of(poisonCloud, summonUndead, plagueBolt, corruptionSpread),
                         false, PlagueWarden::onEnterPhase1,
-                        this::sporeCloudMaze),
-                // Ungated: no mechanic at all, just the whole rot kit trying to kill you. His one
-                // stretch of straight fighting, and the contrast that makes the rest read as designed.
-                new BossPhase("Rot Takes Hold", 0.75,
+                        instance -> PlaguePhases.contagion(instance, 0.70)),
+                // The Bloom: real Spore Nodes corrupt the ground outward. Still fully hittable — the
+                // group splits between boss pressure and clearing nodes before the floor turns hostile.
+                new BossPhase("The Bloom", 0.70,
                         List.of(miasma, rottingGrasp, summonUndead, poisonCloud, blightSigils, virulentRot),
-                        false, PlagueWarden::onEnterPhase2),
-                // Contagion Ledger: his signature. Every wound you deal is written against your name
-                // and the room settles the account together — so the group has to take turns.
-                new BossPhase("Pestilence", 0.40,
+                        false, PlagueWarden::onEnterPhase2,
+                        instance -> PlaguePhases.theBloom(instance, 0.45)),
+                // Host: he burrows into a real sculk growth. Never invulnerable — only the cleansed
+                // land real hits while it stands, and its sensors punish frantic play with a shriek.
+                new BossPhase("Host", 0.45,
                         List.of(plagueSwarm, corruptionSpread, miasma, summonUndead, blightSigils, pandemicSurge, virulentRot),
                         false, PlagueWarden::onEnterPhase3,
-                        this::contagionLedger),
-                // Withering Roots: the ground marks whoever stands on it and then grabs them. A pure
-                // footwork check to finish, and the thing that finally forbids camping his feet.
-                new BossPhase("The Great Plague", 0.15,
+                        instance -> PlaguePhases.host(instance, 0.20)),
+                // Pandemic: Infection rises everywhere regardless of position, and the pyres burn out
+                // one at a time — every wasted charge earlier in the fight is felt here.
+                new BossPhase("Pandemic", 0.20,
                         List.of(poisonCloud, plagueBolt, corruptionSpread, rottingGrasp, plagueSwarm, pandemic,
                                 blightSigils, pandemicSurge),
                         true, PlagueWarden::onEnterEnrage,
-                        this::witheringRoots));
+                        PlaguePhases::pandemic));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Rotscourge(plugin).createItem())
@@ -135,56 +143,7 @@ public final class PlagueWarden extends Boss {
         return lootTable;
     }
 
-    /**
-     * Spore Cloud Maze: clouds keep sprouting, keep growing, and only leave when they are finished —
-     * so the usable floor shrinks steadily. Capped well short of sealing the arena, and patches never
-     * appear directly under a player, so it denies space rather than dealing unavoidable damage.
-     */
-    private PhaseMechanic sporeCloudMaze(BossInstance instance) {
-        return new HazardPatchMechanic(instance, "Spore Maze", TOXIC, Particle.SPORE_BLOSSOM_AIR,
-                configInt("spore-spawn-interval-ticks", 70),
-                configInt("spore-max-patches", 7),
-                configDouble("spore-start-radius", 2.5),
-                configDouble("spore-max-radius", 5.0),
-                configDouble("spore-growth-per-second", 0.25),
-                configInt("spore-lifetime-ticks", 320),
-                configDouble("spore-damage-per-second", 3.0),
-                PotionEffectType.POISON, 0,
-                configDouble("spore-placement-fraction", 0.75));
-    }
-
-    /**
-     * Contagion Ledger: his signature, and the reason this fight cannot be carried by one player's
-     * damage. Personal debt only bleeds off while you are not swinging, and the room's burst hits
-     * each player for what they personally owe.
-     */
-    private PhaseMechanic contagionLedger(BossInstance instance) {
-        return new ContagionLedgerMechanic(instance, SICKLY,
-                configDouble("contagion-stacks-per-damage", 1.0),
-                configDouble("contagion-decay-per-second", 9.0),
-                configDouble("contagion-ledger-cap", 260.0),
-                configDouble("contagion-burst-base-damage", 4.0),
-                configDouble("contagion-burst-damage-per-stack", 0.16),
-                configInt("contagion-sickness-ticks", 100),
-                configDouble("contagion-heal-per-stack", 0.05));
-    }
-
-    /**
-     * Withering Roots: the ground telegraphs under whoever is standing still and then snares them.
-     * Damage is modest; the root is the real cost, since the rest of his kit is still firing.
-     */
-    private PhaseMechanic witheringRoots(BossInstance instance) {
-        return new TelegraphedEruptionMechanic(instance, "Withering Roots", TOXIC,
-                Particle.SPORE_BLOSSOM_AIR, Sound.BLOCK_GRASS_BREAK, Sound.ENTITY_ZOMBIE_INFECT,
-                configInt("roots-volley-interval-ticks", 70),
-                configInt("roots-telegraph-ticks", 34),
-                configDouble("roots-radius", 2.6),
-                configDouble("roots-damage", 10.0),
-                configInt("roots-snare-ticks", 45),
-                configInt("roots-marks-per-volley", 3));
-    }
-
-    /** Offset from his phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    /** Offset from his phase boundaries (0.70 / 0.45 / 0.20) so they land mid-phase, not on transitions. */
     @Override
     public List<BossEvent> events() {
         return List.of(
@@ -231,20 +190,20 @@ public final class PlagueWarden extends Boss {
 
     private static void onEnterPhase2(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Rot Takes Hold: a swelling cloud of decay engulfs the warden.
+        // The Bloom: a swelling cloud of decay engulfs the warden as the ground starts to corrupt.
         Fx.burst(loc.clone().add(0, 1.2, 0), Particle.SPORE_BLOSSOM_AIR, 45, 0.9);
         Fx.coloredBurst(loc.clone().add(0, 1.2, 0), SICKLY, 1.6f, 40, 0.8);
         Fx.expandingRings(instance.plugin(), loc, Particle.ITEM_SLIME, 7.0, 3, 2L);
         Fx.sound(loc, Sound.BLOCK_SCULK_SPREAD, 1.0f, 0.5f);
         Fx.sound(loc, Sound.ENTITY_ZOMBIE_INFECT, 0.8f, 0.8f);
         instance.showTitle(
-                Component.text("Rot Takes Hold", NamedTextColor.GREEN).decoration(TextDecoration.BOLD, true),
+                Component.text("The Bloom", NamedTextColor.GREEN).decoration(TextDecoration.BOLD, true),
                 Component.text("Decay creeps across the battlefield", NamedTextColor.GRAY));
     }
 
     private static void onEnterPhase3(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Pestilence: an inward-collapsing ring of spores hardens around the warden.
+        // Host: an inward-collapsing ring of spores as he burrows into the sculk.
         Fx.burst(loc.clone().add(0, 1.2, 0), Particle.ITEM_SLIME, 40, 0.7);
         Fx.coloredBurst(loc.clone().add(0, 1.2, 0), TOXIC, 2.0f, 34, 0.8);
         for (int ring = 0; ring < 3; ring++) {
@@ -253,13 +212,13 @@ public final class PlagueWarden extends Boss {
         Fx.sound(loc, Sound.ENTITY_WITCH_AMBIENT, 1.0f, 0.5f);
         Fx.sound(loc, Sound.BLOCK_SCULK_CATALYST_BLOOM, 0.7f, 0.4f);
         instance.showTitle(
-                Component.text("Pestilence", NamedTextColor.DARK_GREEN).decoration(TextDecoration.BOLD, true),
-                Component.text("The air itself turns to poison", NamedTextColor.GRAY));
+                Component.text("Host", NamedTextColor.DARK_GREEN).decoration(TextDecoration.BOLD, true),
+                Component.text("Only the cleansed can touch him now — stay quiet", NamedTextColor.GRAY));
     }
 
     private static void onEnterEnrage(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // The Great Plague: a towering spore helix and a spinning fermented-eye icon overhead.
+        // Pandemic: a towering spore helix and a spinning fermented-eye icon overhead.
         Fx.burst(loc.clone().add(0, 1, 0), Particle.SPORE_BLOSSOM_AIR, 55, 0.8);
         Fx.coloredRing(loc, TOXIC, 1.6f, 4.5, 24, 0);
         Fx.spinningIcon(instance.plugin(), loc.clone().add(0, 2.6, 0), Material.FERMENTED_SPIDER_EYE, 1.4f, 100, 12.0);
@@ -279,8 +238,8 @@ public final class PlagueWarden extends Boss {
         Fx.sound(loc, Sound.ENTITY_WITHER_SPAWN, 1.2f, 0.7f);
         Fx.sound(loc, Sound.ENTITY_ZOMBIE_VILLAGER_CONVERTED, 1.0f, 0.5f);
         instance.showTitle(
-                Component.text("☣ THE GREAT PLAGUE ☣", NamedTextColor.DARK_GREEN).decoration(TextDecoration.BOLD, true),
-                Component.text("Let the whole world rot", NamedTextColor.GRAY));
+                Component.text("☣ PANDEMIC ☣", NamedTextColor.DARK_GREEN).decoration(TextDecoration.BOLD, true),
+                Component.text("The pyres are burning out — spend them wisely", NamedTextColor.GRAY));
     }
 
     private static ItemStack blightplateArmor(Material material) {

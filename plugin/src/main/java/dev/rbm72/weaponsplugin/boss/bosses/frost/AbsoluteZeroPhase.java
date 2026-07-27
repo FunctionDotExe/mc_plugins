@@ -60,6 +60,10 @@ final class AbsoluteZeroPhase extends FrostPhaseMechanic {
     private void pulse() {
         Location centre = instance.arena().center();
         fight.campfires().snuffOne();
+        // The crack itself is a real terrain event, not a burst of particles standing in for one — see
+        // IceField#surge. Everywhere it reaches keeps the "faster on ice" Chill multiplier live for
+        // real, which particles alone could never do.
+        fight.iceField().surge();
         Fx.burst(centre.clone().add(0, 2, 0), Particle.SNOWFLAKE, 90, 1.4);
         Fx.coloredBurst(centre.clone().add(0, 2, 0), FrostFight.PALE_ICE, 2.8f, 80, 1.5);
         Fx.sound(centre, Sound.ENTITY_PLAYER_HURT_FREEZE, 1.6f, 0.4f);

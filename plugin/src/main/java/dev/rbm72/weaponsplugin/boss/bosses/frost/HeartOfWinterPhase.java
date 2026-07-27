@@ -56,6 +56,21 @@ final class HeartOfWinterPhase extends FrostPhaseMechanic {
         return fight.heart().destroyed();
     }
 
+    /**
+     * A new record low on the Heart's HP resets the floor-lock timeout's clock, same as every other
+     * phase's {@code progressSignal} — without this, a group actively burning the Heart down for longer
+     * than {@link dev.rbm72.weaponsplugin.boss.bosses.FrostQueen#phaseFloorTimeoutMs} without quite
+     * finishing it looks identical to a group that never engaged with fire-carrying at all, and the
+     * valve would hand the phase over mid-effort. Monotonic by construction: {@code tick()} only calls
+     * {@code recordProgress()} when this strictly increases, so the Heart re-freezing while uncontested
+     * (its own intended "hesitation resets progress" punishment) never itself resets the clock — only
+     * genuinely new damage does.
+     */
+    @Override
+    protected int progressSignal() {
+        return (int) Math.round((1.0 - fight.heart().fraction()) * 1000);
+    }
+
     @Override
     protected Component readoutText() {
         if (fight.heart().destroyed()) {

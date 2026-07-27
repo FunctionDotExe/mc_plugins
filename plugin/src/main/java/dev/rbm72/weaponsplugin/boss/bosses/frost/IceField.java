@@ -42,4 +42,17 @@ final class IceField {
         Grief.spread(fight.griefContext(), origin, Material.PACKED_ICE, radius);
         Grief.spread(fight.griefContext(), origin, Material.BLUE_ICE, radius * 0.4);
     }
+
+    /**
+     * P4's Absolute Zero pulse: "the whole arena audibly cracks + a visible frost front sweeps outward"
+     * (batch-1 §2.4) is a real terrain event, not a burst of particles standing in for one — an instant,
+     * arena-wide freeze pass from the fixed centre, on top of whatever the boss's own slow growth above
+     * has already covered.
+     */
+    void surge() {
+        Location centre = fight.instance().arena().center();
+        double radius = fight.instance().arena().radius() * fight.config().dbl("ice-field-max-fraction", 0.85);
+        Grief.spread(fight.griefContext(), centre, Material.PACKED_ICE, radius);
+        Grief.spread(fight.griefContext(), centre, Material.BLUE_ICE, radius * 0.6);
+    }
 }

@@ -7,11 +7,9 @@ import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
 import dev.rbm72.weaponsplugin.boss.events.BeaconEvent;
 import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
-import dev.rbm72.weaponsplugin.boss.mechanics.ChainTagMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.GroundingRodsMechanic;
+import dev.rbm72.weaponsplugin.boss.bosses.storm.StormPhases;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BallLightningAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.ChainLightningAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.GalePushAttack;
@@ -21,7 +19,6 @@ import dev.rbm72.weaponsplugin.boss.bosses.attacks.StormcallAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.ThunderstormAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.ThunderstrikeAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.TornadoAttack;
-import dev.rbm72.weaponsplugin.boss.gates.Gates;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.weapons.TempestMaul;
 import net.kyori.adventure.text.Component;
@@ -44,10 +41,21 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * The Storm Tyrant — the sky's furious sovereign. Four phases
- * (100-75 / 75-40 / 40-15 / enrage &lt;15) built on a shared lightning kit,
- * with Thunderstrike (real lightning) as the signature grief move and a
- * rolling arena-wide Stormcall barrage in enrage.
+ * The Storm Tyrant — an open-sky arena where the storm owns the vertical axis. Four phases
+ * (100-70 / 70-45 / 45-15 / &lt;15), all built on {@code storm.StormPhases}: the Static Charge meter and
+ * his four lightning rods run the whole fight, and each phase adds one more structural demand
+ * (batch-1 spec §3.3):
+ * <ol>
+ *   <li><b>Static Build</b> — the charge meter and the rod rotation are taught.</li>
+ *   <li><b>Floodplain</b> — real water floods the floor; any bolt landing in a connected pool damages
+ *       everyone standing in it, so the safe floor is a shape rather than a distance.</li>
+ *   <li><b>Eye of the Storm</b> — he ascends, fed by four Storm Pylons. He never goes invulnerable:
+ *       while any pylon stands, only currently-discharged players land real damage on him — a rule
+ *       about how you fight, not a wall. A rolling barrage sweeps the arena with one rotating gap.</li>
+ *   <li><b>Stormcall</b> — he lands, permanently charged, and every rod now burns out after a single
+ *       use — a real turn-order endgame.</li>
+ * </ol>
+ * He is never invulnerable in any of the four bands; see {@code StormPhaseMechanic}'s header.
  */
 public final class StormTyrant extends Boss {
 
@@ -71,30 +79,29 @@ public final class StormTyrant extends Boss {
         ChainOfJudgmentAttack chainOfJudgment = new ChainOfJudgmentAttack(plugin);
 
         this.phases = List.of(
-                // Grounding Rods: his charge has to go somewhere. Split up and earth it through
-                // yourselves, or leave a rod empty and it earths through the whole room instead. He is
-                // hittable the entire time — the phase is about how many people you can spare.
-                new BossPhase("Grounding Rods", 1.0,
+                // Static Build: the charge meter and the rod rotation are taught. He is hittable the
+                // entire time — the ask is learning to break off and discharge before you cap out.
+                new BossPhase("Static Build", 1.0,
                         List.of(chainLightning, thunderstrike, galePush, lightningRods),
                         false, StormTyrant::onEnterPhase1,
-                        this::groundingRods),
-                // The eye of the storm is a real, moving patch of calm — the only ground his ward
-                // cannot cover. Hold it and he is hittable; leave it and he seals, wherever you stand.
-                new BossPhase("Eye of the Storm", 0.75,
+                        instance -> StormPhases.staticBuild(instance, 0.70)),
+                // Floodplain: real water across the floor. Still fully hittable — the safe ground is
+                // now a conductive shape rather than a distance from the last bolt.
+                new BossPhase("Floodplain", 0.70,
                         List.of(tornado, ballLightning, chainLightning, thunderstrike),
                         false, StormTyrant::onEnterPhase2,
-                        Gates.controlZone(plugin, "storm_tyrant", "storm-eye", "THE EYE PASSES", STORM_YELLOW)),
-                // Chain Lightning Tag: a charge that hunts for the nearest body and grows with every
-                // body it finds. The inverse of the phase above — that one collapses the group onto one
-                // circle, this one makes standing together lethal.
-                new BossPhase("Wrath of the Sky", 0.40,
+                        instance -> StormPhases.floodplain(instance, 0.45)),
+                // Eye of the Storm: he ascends behind four pylons. Never invulnerable — only the
+                // currently-discharged land real hits while one still stands.
+                new BossPhase("Eye of the Storm", 0.45,
                         List.of(thunderstorm, galePush, ballLightning, tornado, chainOfJudgment),
                         false, StormTyrant::onEnterPhase3,
-                        this::chainLightningTag),
-                // Ungated finish: the sky falls on you and there is nothing to solve, only to survive.
-                new BossPhase("Maelstrom of Wrath", 0.15,
+                        instance -> StormPhases.eyeOfTheStorm(instance, 0.15)),
+                // Stormcall: he lands, permanently charged, and every rod burns out after one use.
+                new BossPhase("Stormcall", 0.15,
                         List.of(chainLightning, thunderstrike, galePush, ballLightning, tornado, stormcall, chainOfJudgment),
-                        true, StormTyrant::onEnterEnrage));
+                        true, StormTyrant::onEnterEnrage,
+                        StormPhases::stormcall));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new TempestMaul(plugin).createItem())
@@ -141,38 +148,7 @@ public final class StormTyrant extends Boss {
         return lootTable;
     }
 
-    /**
-     * Grounding Rods: charged rods stand around the arena on a clock, and each one with somebody under
-     * it earths harmlessly through them. Every rod left empty dumps its charge into the whole room
-     * instead. The rod count follows the headcount, so it is always exactly solvable and never
-     * impossible alone.
-     */
-    private PhaseMechanic groundingRods(BossInstance instance) {
-        return new GroundingRodsMechanic(instance, "Grounding Rods", STORM_YELLOW, Material.LIGHTNING_ROD,
-                configInt("grounding-rods-max", 4),
-                configDouble("grounding-rods-radius", 3.5),
-                configInt("grounding-rods-charge-ticks", 180),
-                configDouble("grounding-rods-earthed-damage", 4.0),
-                configDouble("grounding-rods-unrouted-damage", 9.0),
-                configDouble("grounding-rods-placement-fraction", 0.6));
-    }
-
-    /**
-     * Chain Lightning Tag: a live charge that jumps to whoever is nearest and hits harder with every
-     * hop. It only dies when it cannot reach anyone, so the answer is to break the group apart and
-     * keep it apart while still fighting.
-     */
-    private PhaseMechanic chainLightningTag(BossInstance instance) {
-        return new ChainTagMechanic(instance, "Chain Lightning", STORM_WHITE,
-                configDouble("chain-tag-hop-range", 8.0),
-                configInt("chain-tag-hop-interval-ticks", 30),
-                configDouble("chain-tag-base-damage", 5.0),
-                configDouble("chain-tag-growth-per-hop", 4.0),
-                configInt("chain-tag-max-hops", 6),
-                configInt("chain-tag-respawn-ticks", 120));
-    }
-
-    /** Offset from his phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    /** Offset from his phase boundaries (0.70 / 0.45 / 0.15) so they land mid-phase, not on transitions. */
     @Override
     public List<BossEvent> events() {
         return List.of(
@@ -228,20 +204,20 @@ public final class StormTyrant extends Boss {
 
     private static void onEnterPhase2(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Eye of the Storm: a swirling spark-storm burst spins up around the tyrant.
+        // Floodplain: a swirling spark-storm burst as the first water pours across the floor.
         Fx.burst(loc.clone().add(0, 1.2, 0), Particle.ELECTRIC_SPARK, 45, 0.9);
         Fx.coloredBurst(loc.clone().add(0, 1.2, 0), STORM_WHITE, 1.6f, 40, 0.8);
         Fx.expandingRings(instance.plugin(), loc, Particle.CLOUD, 7.0, 3, 2L);
         Fx.sound(loc, Sound.ITEM_ELYTRA_FLYING, 1.0f, 0.6f);
         Fx.sound(loc, Sound.ENTITY_LIGHTNING_BOLT_IMPACT, 0.8f, 0.9f);
         instance.showTitle(
-                Component.text("Eye of the Storm", NamedTextColor.YELLOW).decoration(TextDecoration.BOLD, true),
-                Component.text("The winds gather at his command", NamedTextColor.GRAY));
+                Component.text("Floodplain", NamedTextColor.YELLOW).decoration(TextDecoration.BOLD, true),
+                Component.text("The floor floods — watch where the water goes", NamedTextColor.GRAY));
     }
 
     private static void onEnterPhase3(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Wrath of the Sky: bolts crack down in a tightening ring around the tyrant.
+        // Eye of the Storm: bolts crack down in a tightening ring as he takes to the sky.
         Fx.burst(loc.clone().add(0, 1.2, 0), Particle.END_ROD, 40, 0.7);
         Fx.coloredBurst(loc.clone().add(0, 1.2, 0), STORM_YELLOW, 2.0f, 34, 0.8);
         for (int ring = 0; ring < 3; ring++) {
@@ -253,13 +229,13 @@ public final class StormTyrant extends Boss {
         Fx.sound(loc, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 1.0f, 0.5f);
         Fx.sound(loc, Sound.ENTITY_LIGHTNING_BOLT_IMPACT, 0.7f, 0.7f);
         instance.showTitle(
-                Component.text("Wrath of the Sky", NamedTextColor.GOLD).decoration(TextDecoration.BOLD, true),
-                Component.text("The heavens themselves turn against you", NamedTextColor.GRAY));
+                Component.text("Eye of the Storm", NamedTextColor.GOLD).decoration(TextDecoration.BOLD, true),
+                Component.text("Only the discharged can touch him now", NamedTextColor.GRAY));
     }
 
     private static void onEnterEnrage(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Maelstrom of Wrath: a towering spark helix and a spinning lightning-rod crown overhead.
+        // Stormcall: a towering spark helix and a spinning lightning-rod crown overhead.
         Fx.burst(loc.clone().add(0, 1, 0), Particle.ELECTRIC_SPARK, 55, 0.8);
         Fx.coloredRing(loc, STORM_YELLOW, 1.6f, 4.5, 24, 0);
         Fx.spinningIcon(instance.plugin(), loc.clone().add(0, 2.6, 0), Material.LIGHTNING_ROD, 1.4f, 100, 12.0);
@@ -279,8 +255,8 @@ public final class StormTyrant extends Boss {
         Fx.sound(loc, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 1.2f, 0.4f);
         Fx.sound(loc, Sound.ENTITY_WITHER_SPAWN, 1.0f, 0.6f);
         instance.showTitle(
-                Component.text("⚡ MAELSTROM OF WRATH ⚡", NamedTextColor.YELLOW).decoration(TextDecoration.BOLD, true),
-                Component.text("The Storm Tyrant unleashes the full tempest", NamedTextColor.GRAY));
+                Component.text("⚡ STORMCALL ⚡", NamedTextColor.YELLOW).decoration(TextDecoration.BOLD, true),
+                Component.text("Every rod burns out after one use now", NamedTextColor.GRAY));
     }
 
     private static ItemStack stormforgedArmor(Material material) {
