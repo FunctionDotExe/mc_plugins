@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -104,6 +105,19 @@ public final class VoidBlade extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 55.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Abyss")
+                .accent(VOID_COLOR)
+                .perMeleeHit(configDouble("abyss-per-hit", 6.0))
+                .perDamageDealt(configDouble("abyss-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("abyss-per-ability", 8.0))
+                .perKill(configDouble("abyss-per-kill", 12.0))
+                .decay(configDouble("abyss-decay-per-second", 2.0), configDouble("abyss-decay-grace", 7.0))
+                .cooldownFloor(configDouble("abyss-cooldown-floor", 50.0))
+                .build();
     }
 
     @Override

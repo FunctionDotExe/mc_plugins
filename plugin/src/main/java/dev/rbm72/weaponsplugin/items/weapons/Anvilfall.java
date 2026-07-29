@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -111,6 +112,19 @@ public final class Anvilfall extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 50.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Momentum")
+                .accent(IRON_GRAY)
+                .perMeleeHit(configDouble("momentum-per-hit", 6.0))
+                .perDamageDealt(configDouble("momentum-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("momentum-per-ability", 8.0))
+                .perKill(configDouble("momentum-per-kill", 10.0))
+                .decay(configDouble("momentum-decay-per-second", 2.0), configDouble("momentum-decay-grace", 7.0))
+                .cooldownFloor(configDouble("momentum-cooldown-floor", 45.0))
+                .build();
     }
 
     @Override

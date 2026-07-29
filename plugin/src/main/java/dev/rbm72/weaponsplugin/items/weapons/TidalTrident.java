@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -104,6 +105,19 @@ public final class TidalTrident extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 50.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Undertow")
+                .accent(TIDE_COLOR)
+                .perMeleeHit(configDouble("undertow-per-hit", 4.0))
+                .perDamageDealt(configDouble("undertow-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("undertow-per-ability", 8.0))
+                .perKill(configDouble("undertow-per-kill", 11.0))
+                .decay(configDouble("undertow-decay-per-second", 2.0), configDouble("undertow-decay-grace", 7.0))
+                .cooldownFloor(configDouble("undertow-cooldown-floor", 45.0))
+                .build();
     }
 
     @Override

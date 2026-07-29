@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
@@ -113,6 +114,19 @@ public final class StormChakrams extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 45.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Cyclone")
+                .accent(STORM_BLUE)
+                .perMeleeHit(configDouble("cyclone-per-hit", 3.0))
+                .perDamageDealt(configDouble("cyclone-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("cyclone-per-ability", 9.0))
+                .perKill(configDouble("cyclone-per-kill", 10.0))
+                .decay(configDouble("cyclone-decay-per-second", 2.0), configDouble("cyclone-decay-grace", 6.0))
+                .cooldownFloor(configDouble("cyclone-cooldown-floor", 40.0))
+                .build();
     }
 
     @Override

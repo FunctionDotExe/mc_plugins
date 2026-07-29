@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -107,6 +108,19 @@ public final class Vitriol extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 45.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Corrosion")
+                .accent(OOZE_GREEN)
+                .perMeleeHit(configDouble("corrosion-per-hit", 6.0))
+                .perDamageDealt(configDouble("corrosion-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("corrosion-per-ability", 8.0))
+                .perKill(configDouble("corrosion-per-kill", 12.0))
+                .decay(configDouble("corrosion-decay-per-second", 2.0), configDouble("corrosion-decay-grace", 7.0))
+                .cooldownFloor(configDouble("corrosion-cooldown-floor", 40.0))
+                .build();
     }
 
     @Override

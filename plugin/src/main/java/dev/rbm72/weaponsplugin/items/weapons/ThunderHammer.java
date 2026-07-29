@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -119,6 +120,19 @@ public final class ThunderHammer extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 45.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Voltage")
+                .accent(STRIKE_COLOR)
+                .perMeleeHit(configDouble("voltage-per-hit", 6.0))
+                .perDamageDealt(configDouble("voltage-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("voltage-per-ability", 8.0))
+                .perKill(configDouble("voltage-per-kill", 12.0))
+                .decay(configDouble("voltage-decay-per-second", 2.0), configDouble("voltage-decay-grace", 7.0))
+                .cooldownFloor(configDouble("voltage-cooldown-floor", 40.0))
+                .build();
     }
 
     @Override

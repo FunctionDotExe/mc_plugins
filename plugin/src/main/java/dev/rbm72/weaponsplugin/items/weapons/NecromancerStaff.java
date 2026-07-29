@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.ability.SummonManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
@@ -117,6 +118,19 @@ public final class NecromancerStaff extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 60.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Ritual")
+                .accent(Color.fromRGB(90, 130, 90))
+                .perMeleeHit(configDouble("ritual-per-hit", 3.0))
+                .perDamageDealt(configDouble("ritual-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("ritual-per-ability", 10.0))
+                .perKill(configDouble("ritual-per-kill", 11.0))
+                .decay(configDouble("ritual-decay-per-second", 2.0), configDouble("ritual-decay-grace", 6.0))
+                .cooldownFloor(configDouble("ritual-cooldown-floor", 55.0))
+                .build();
     }
 
     @Override

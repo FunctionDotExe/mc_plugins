@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -79,6 +80,19 @@ public final class DuskfallMace extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 20.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Judgment")
+                .accent(DUSK_COLOR)
+                .perMeleeHit(configDouble("judgment-per-hit", 7.0))
+                .perDamageDealt(configDouble("judgment-per-damage-dealt", 0.5))
+                .perAbilityCast(configDouble("judgment-per-ability", 10.0))
+                .perKill(configDouble("judgment-per-kill", 14.0))
+                .decay(configDouble("judgment-decay-per-second", 2.2), configDouble("judgment-decay-grace", 6.0))
+                .cooldownFloor(configDouble("judgment-cooldown-floor", 18.0))
+                .build();
     }
 
     @Override

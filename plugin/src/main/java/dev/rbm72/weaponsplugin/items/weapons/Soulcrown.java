@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -106,6 +107,19 @@ public final class Soulcrown extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 60.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Dominion")
+                .accent(SOUL_BLUE)
+                .perMeleeHit(configDouble("dominion-per-hit", 6.0))
+                .perDamageDealt(configDouble("dominion-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("dominion-per-ability", 9.0))
+                .perKill(configDouble("dominion-per-kill", 13.0))
+                .decay(configDouble("dominion-decay-per-second", 2.2), configDouble("dominion-decay-grace", 7.0))
+                .cooldownFloor(configDouble("dominion-cooldown-floor", 55.0))
+                .build();
     }
 
     @Override

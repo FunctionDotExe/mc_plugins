@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -115,6 +116,19 @@ public final class CinderCleaver extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 40.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Blaze")
+                .accent(EMBER)
+                .perMeleeHit(configDouble("blaze-per-hit", 7.0))
+                .perDamageDealt(configDouble("blaze-per-damage-dealt", 0.45))
+                .perAbilityCast(configDouble("blaze-per-ability", 8.0))
+                .perKill(configDouble("blaze-per-kill", 11.0))
+                .decay(configDouble("blaze-decay-per-second", 2.0), configDouble("blaze-decay-grace", 7.0))
+                .cooldownFloor(configDouble("blaze-cooldown-floor", 38.0))
+                .build();
     }
 
     @Override

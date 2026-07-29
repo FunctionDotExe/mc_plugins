@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -101,6 +102,20 @@ public final class BloodReaper extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 55.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Bloodlust")
+                .accent(BLOOD_BRIGHT)
+                .perMeleeHit(configDouble("bloodlust-per-hit", 6.0))
+                .perDamageDealt(configDouble("bloodlust-per-damage-dealt", 0.4))
+                .perDamageTaken(configDouble("bloodlust-per-damage-taken", 1.3))
+                .perAbilityCast(configDouble("bloodlust-per-ability", 8.0))
+                .perKill(configDouble("bloodlust-per-kill", 12.0))
+                .decay(configDouble("bloodlust-decay-per-second", 2.0), configDouble("bloodlust-decay-grace", 7.0))
+                .cooldownFloor(configDouble("bloodlust-cooldown-floor", 50.0))
+                .build();
     }
 
     @Override

@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -123,6 +124,19 @@ public final class CelestialBow extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 55.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Starlight")
+                .accent(STAR_GOLD)
+                .perMeleeHit(configDouble("starlight-per-hit", 3.0))
+                .perDamageDealt(configDouble("starlight-per-damage-dealt", 0.45))
+                .perAbilityCast(configDouble("starlight-per-ability", 9.0))
+                .perKill(configDouble("starlight-per-kill", 11.0))
+                .decay(configDouble("starlight-decay-per-second", 2.0), configDouble("starlight-decay-grace", 7.0))
+                .cooldownFloor(configDouble("starlight-cooldown-floor", 50.0))
+                .build();
     }
 
     @Override

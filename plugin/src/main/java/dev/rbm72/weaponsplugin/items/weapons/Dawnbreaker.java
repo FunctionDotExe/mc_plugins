@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -101,6 +102,19 @@ public final class Dawnbreaker extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 55.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Radiance")
+                .accent(SOLAR_GOLD)
+                .perMeleeHit(configDouble("radiance-per-hit", 6.0))
+                .perDamageDealt(configDouble("radiance-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("radiance-per-ability", 8.0))
+                .perKill(configDouble("radiance-per-kill", 12.0))
+                .decay(configDouble("radiance-decay-per-second", 2.0), configDouble("radiance-decay-grace", 7.0))
+                .cooldownFloor(configDouble("radiance-cooldown-floor", 50.0))
+                .build();
     }
 
     @Override

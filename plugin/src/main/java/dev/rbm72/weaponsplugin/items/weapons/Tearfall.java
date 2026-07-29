@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -108,6 +109,19 @@ public final class Tearfall extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 50.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Sorrow")
+                .accent(SORROW_BLUE)
+                .perMeleeHit(configDouble("sorrow-per-hit", 5.0))
+                .perDamageDealt(configDouble("sorrow-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("sorrow-per-ability", 8.0))
+                .perKill(configDouble("sorrow-per-kill", 11.0))
+                .decay(configDouble("sorrow-decay-per-second", 2.0), configDouble("sorrow-decay-grace", 7.0))
+                .cooldownFloor(configDouble("sorrow-cooldown-floor", 45.0))
+                .build();
     }
 
     @Override

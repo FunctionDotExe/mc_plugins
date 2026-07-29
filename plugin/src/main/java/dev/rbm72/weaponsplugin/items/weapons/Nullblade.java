@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -112,6 +113,19 @@ public final class Nullblade extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 55.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Oblivion")
+                .accent(VOID_PURPLE)
+                .perMeleeHit(configDouble("oblivion-per-hit", 6.0))
+                .perDamageDealt(configDouble("oblivion-per-damage-dealt", 0.45))
+                .perAbilityCast(configDouble("oblivion-per-ability", 9.0))
+                .perKill(configDouble("oblivion-per-kill", 13.0))
+                .decay(configDouble("oblivion-decay-per-second", 2.0), configDouble("oblivion-decay-grace", 7.0))
+                .cooldownFloor(configDouble("oblivion-cooldown-floor", 50.0))
+                .build();
     }
 
     @Override

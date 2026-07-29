@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -102,6 +103,19 @@ public final class LunarBlade extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 50.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Moonrise")
+                .accent(Color.fromRGB(190, 205, 255))
+                .perMeleeHit(configDouble("moonrise-per-hit", 6.0))
+                .perDamageDealt(configDouble("moonrise-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("moonrise-per-ability", 8.0))
+                .perKill(configDouble("moonrise-per-kill", 11.0))
+                .decay(configDouble("moonrise-decay-per-second", 2.0), configDouble("moonrise-decay-grace", 7.0))
+                .cooldownFloor(configDouble("moonrise-cooldown-floor", 45.0))
+                .build();
     }
 
     @Override

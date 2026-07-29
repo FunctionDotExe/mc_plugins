@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -113,6 +114,20 @@ public final class Apotheosis extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 75.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Ascension")
+                .accent(CREATION)
+                .perMeleeHit(configDouble("ascension-per-hit", 7.0))
+                .perDamageDealt(configDouble("ascension-per-damage-dealt", 0.5))
+                .perDamageTaken(configDouble("ascension-per-damage-taken", 1.0))
+                .perAbilityCast(configDouble("ascension-per-ability", 10.0))
+                .perKill(configDouble("ascension-per-kill", 15.0))
+                .decay(configDouble("ascension-decay-per-second", 2.5), configDouble("ascension-decay-grace", 6.0))
+                .cooldownFloor(configDouble("ascension-cooldown-floor", 70.0))
+                .build();
     }
 
     @Override

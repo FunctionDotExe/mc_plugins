@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -107,6 +108,19 @@ public final class MaelstromTrident extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 55.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Riptide")
+                .accent(TIDE_COLOR)
+                .perMeleeHit(configDouble("riptide-per-hit", 6.0))
+                .perDamageDealt(configDouble("riptide-per-damage-dealt", 0.45))
+                .perAbilityCast(configDouble("riptide-per-ability", 9.0))
+                .perKill(configDouble("riptide-per-kill", 13.0))
+                .decay(configDouble("riptide-decay-per-second", 2.0), configDouble("riptide-decay-grace", 7.0))
+                .cooldownFloor(configDouble("riptide-cooldown-floor", 50.0))
+                .build();
     }
 
     @Override

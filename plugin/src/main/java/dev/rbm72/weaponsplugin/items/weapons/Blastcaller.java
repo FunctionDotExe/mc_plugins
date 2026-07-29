@@ -1,12 +1,14 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
 import dev.rbm72.weaponsplugin.items.kit.Props;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import org.bukkit.Color;
 import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -29,6 +31,8 @@ import java.util.concurrent.ThreadLocalRandom;
  * knockback, and the blinking-fuse look stay 100% authentic without cratering the map.
  */
 public final class Blastcaller extends Weapon {
+
+    private static final Color FUSE_ORANGE = Color.fromRGB(255, 90, 20);
 
     private final float tossPower;
     private final int tossFuseTicks;
@@ -100,6 +104,19 @@ public final class Blastcaller extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 45.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Payload")
+                .accent(FUSE_ORANGE)
+                .perMeleeHit(configDouble("payload-per-hit", 4.0))
+                .perDamageDealt(configDouble("payload-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("payload-per-ability", 10.0))
+                .perKill(configDouble("payload-per-kill", 12.0))
+                .decay(configDouble("payload-decay-per-second", 2.0), configDouble("payload-decay-grace", 7.0))
+                .cooldownFloor(configDouble("payload-cooldown-floor", 42.0))
+                .build();
     }
 
     @Override

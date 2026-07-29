@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -104,6 +105,19 @@ public final class Starfang extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 55.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Singularity")
+                .accent(VOID_PURPLE)
+                .perMeleeHit(configDouble("singularity-per-hit", 6.0))
+                .perDamageDealt(configDouble("singularity-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("singularity-per-ability", 8.0))
+                .perKill(configDouble("singularity-per-kill", 12.0))
+                .decay(configDouble("singularity-decay-per-second", 2.0), configDouble("singularity-decay-grace", 7.0))
+                .cooldownFloor(configDouble("singularity-cooldown-floor", 50.0))
+                .build();
     }
 
     @Override

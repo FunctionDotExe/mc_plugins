@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -125,6 +126,19 @@ public final class GlacialScepter extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 40.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Chill")
+                .accent(FROST)
+                .perMeleeHit(configDouble("chill-per-hit", 4.0))
+                .perDamageDealt(configDouble("chill-per-damage-dealt", 0.45))
+                .perAbilityCast(configDouble("chill-per-ability", 9.0))
+                .perKill(configDouble("chill-per-kill", 10.0))
+                .decay(configDouble("chill-decay-per-second", 2.0), configDouble("chill-decay-grace", 6.0))
+                .cooldownFloor(configDouble("chill-cooldown-floor", 36.0))
+                .build();
     }
 
     @Override

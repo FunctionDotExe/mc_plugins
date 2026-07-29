@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -130,6 +131,19 @@ public final class Starbreaker extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 65.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Nova")
+                .accent(STARLIGHT_VIOLET)
+                .perMeleeHit(configDouble("nova-per-hit", 6.0))
+                .perDamageDealt(configDouble("nova-per-damage-dealt", 0.45))
+                .perAbilityCast(configDouble("nova-per-ability", 9.0))
+                .perKill(configDouble("nova-per-kill", 14.0))
+                .decay(configDouble("nova-decay-per-second", 2.2), configDouble("nova-decay-grace", 6.0))
+                .cooldownFloor(configDouble("nova-cooldown-floor", 58.0))
+                .build();
     }
 
     @Override

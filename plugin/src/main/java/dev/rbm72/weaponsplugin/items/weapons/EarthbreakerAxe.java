@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -40,6 +41,8 @@ import java.util.concurrent.ThreadLocalRandom;
 
 /** Earth-themed axe: ground-crack line, temporary stone wall, boulder throw, and an expanding-earthquake ultimate. */
 public final class EarthbreakerAxe extends Weapon {
+
+    private static final Color EARTH_BROWN = Color.fromRGB(120, 80, 45);
 
     private final double knockbackResistanceAmount;
     private final double crackRange;
@@ -180,6 +183,19 @@ public final class EarthbreakerAxe extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 45.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Tremor")
+                .accent(EARTH_BROWN)
+                .perMeleeHit(configDouble("tremor-per-hit", 6.0))
+                .perDamageDealt(configDouble("tremor-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("tremor-per-ability", 8.0))
+                .perKill(configDouble("tremor-per-kill", 10.0))
+                .decay(configDouble("tremor-decay-per-second", 2.0), configDouble("tremor-decay-grace", 7.0))
+                .cooldownFloor(configDouble("tremor-cooldown-floor", 42.0))
+                .build();
     }
 
     @Override

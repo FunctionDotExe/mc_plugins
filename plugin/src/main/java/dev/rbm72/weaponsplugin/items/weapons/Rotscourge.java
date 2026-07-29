@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -120,6 +121,19 @@ public final class Rotscourge extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 55.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Virulence")
+                .accent(TOXIC)
+                .perMeleeHit(configDouble("virulence-per-hit", 6.0))
+                .perDamageDealt(configDouble("virulence-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("virulence-per-ability", 8.0))
+                .perKill(configDouble("virulence-per-kill", 12.0))
+                .decay(configDouble("virulence-decay-per-second", 2.0), configDouble("virulence-decay-grace", 7.0))
+                .cooldownFloor(configDouble("virulence-cooldown-floor", 50.0))
+                .build();
     }
 
     @Override

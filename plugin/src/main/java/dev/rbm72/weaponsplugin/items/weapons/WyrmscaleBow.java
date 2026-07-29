@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -116,6 +117,19 @@ public final class WyrmscaleBow extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 55.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Wyrmfire")
+                .accent(DRAGON_RED)
+                .perMeleeHit(configDouble("wyrmfire-per-hit", 3.0))
+                .perDamageDealt(configDouble("wyrmfire-per-damage-dealt", 0.45))
+                .perAbilityCast(configDouble("wyrmfire-per-ability", 9.0))
+                .perKill(configDouble("wyrmfire-per-kill", 12.0))
+                .decay(configDouble("wyrmfire-decay-per-second", 2.0), configDouble("wyrmfire-decay-grace", 7.0))
+                .cooldownFloor(configDouble("wyrmfire-cooldown-floor", 50.0))
+                .build();
     }
 
     @Override

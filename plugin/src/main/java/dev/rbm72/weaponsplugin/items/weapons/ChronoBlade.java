@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -108,6 +109,19 @@ public final class ChronoBlade extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 60.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Tempo")
+                .accent(CHRONO_TEAL)
+                .perMeleeHit(configDouble("tempo-per-hit", 6.0))
+                .perDamageDealt(configDouble("tempo-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("tempo-per-ability", 9.0))
+                .perKill(configDouble("tempo-per-kill", 12.0))
+                .decay(configDouble("tempo-decay-per-second", 2.2), configDouble("tempo-decay-grace", 7.0))
+                .cooldownFloor(configDouble("tempo-cooldown-floor", 55.0))
+                .build();
     }
 
     @Override

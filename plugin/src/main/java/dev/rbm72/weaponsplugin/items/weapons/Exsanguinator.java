@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -126,6 +127,19 @@ public final class Exsanguinator extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 50.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Sanguine")
+                .accent(BLOOD_BRIGHT)
+                .perMeleeHit(configDouble("sanguine-per-hit", 5.0))
+                .perDamageDealt(configDouble("sanguine-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("sanguine-per-ability", 9.0))
+                .perKill(configDouble("sanguine-per-kill", 12.0))
+                .decay(configDouble("sanguine-decay-per-second", 2.0), configDouble("sanguine-decay-grace", 7.0))
+                .cooldownFloor(configDouble("sanguine-cooldown-floor", 45.0))
+                .build();
     }
 
     @Override

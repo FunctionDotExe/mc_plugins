@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
@@ -119,6 +120,19 @@ public final class TempestMaul extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 40.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Storm")
+                .accent(STRIKE_COLOR)
+                .perMeleeHit(configDouble("storm-per-hit", 6.0))
+                .perDamageDealt(configDouble("storm-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("storm-per-ability", 8.0))
+                .perKill(configDouble("storm-per-kill", 11.0))
+                .decay(configDouble("storm-decay-per-second", 2.0), configDouble("storm-decay-grace", 7.0))
+                .cooldownFloor(configDouble("storm-cooldown-floor", 36.0))
+                .build();
     }
 
     @Override

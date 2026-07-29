@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -110,6 +111,19 @@ public final class PlagueScythe extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 50.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Contagion")
+                .accent(Color.fromRGB(80, 140, 40))
+                .perMeleeHit(configDouble("contagion-per-hit", 5.0))
+                .perDamageDealt(configDouble("contagion-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("contagion-per-ability", 9.0))
+                .perKill(configDouble("contagion-per-kill", 11.0))
+                .decay(configDouble("contagion-decay-per-second", 2.0), configDouble("contagion-decay-grace", 7.0))
+                .cooldownFloor(configDouble("contagion-cooldown-floor", 45.0))
+                .build();
     }
 
     @Override

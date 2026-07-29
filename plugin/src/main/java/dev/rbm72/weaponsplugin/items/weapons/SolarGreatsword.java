@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -99,6 +100,19 @@ public final class SolarGreatsword extends Weapon {
     @Override
     public double ultimateCooldownSeconds() {
         return configDouble("ultimate-cooldown-seconds", 55.0);
+    }
+
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Zenith")
+                .accent(SOLAR_GOLD)
+                .perMeleeHit(configDouble("zenith-per-hit", 6.0))
+                .perDamageDealt(configDouble("zenith-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("zenith-per-ability", 8.0))
+                .perKill(configDouble("zenith-per-kill", 12.0))
+                .decay(configDouble("zenith-decay-per-second", 2.0), configDouble("zenith-decay-grace", 7.0))
+                .cooldownFloor(configDouble("zenith-cooldown-floor", 50.0))
+                .build();
     }
 
     @Override
