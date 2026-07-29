@@ -82,7 +82,7 @@ public final class WhirlpoolAttack extends BossAttack {
                                 }
                                 player.setVelocity(player.getVelocity().add(toCenter.normalize().multiply(pullStrength)));
                                 if (ticks % 20 == 0) {
-                                    player.damage(damagePerSecond, ctx.boss());
+                                    tickHurt(ctx, player, damagePerSecond);
                                     Fx.coloredBurst(player.getLocation().add(0, 1, 0), TEAL, 1.2f, 10, 0.4);
                                     Fx.bloodSpray(player.getLocation().add(0, 1, 0));
                                 }

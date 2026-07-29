@@ -17,7 +17,9 @@ import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -82,6 +84,8 @@ final class Duel {
 
     private int rotations;
     private int ripostes;
+    /** Every player who has held the mantle at least once — what P1's "full rotation" objective actually checks. */
+    private final Set<UUID> everHeld = new HashSet<>();
     /** Milliseconds of continuous "nobody is duelling him" before he takes a sip of health back. */
     private long neglectedSinceMs;
 
@@ -105,6 +109,11 @@ final class Duel {
     /** Completed Challenger hand-offs. P1 exits on a full rotation of the group through the mantle. */
     int rotations() {
         return rotations;
+    }
+
+    /** How many distinct players have held the mantle at least once — the real measure of "a full rotation". */
+    int distinctHolders() {
+        return everHeld.size();
     }
 
     int ripostes() {
@@ -181,6 +190,11 @@ final class Duel {
 
     void pulse(int intervalTicks) {
         if (abandoned) {
+            // No Challenger to mark or neglect-check any more, but the combos themselves must keep
+            // coming — P3/P4's entire point is that he now swings at everyone (see #victims()).
+            if (active) {
+                advance(intervalTicks, null);
+            }
             return;
         }
         ensureChallenger();
@@ -228,7 +242,12 @@ final class Duel {
             return;
         }
         rotations++;
-        markChallenger(present.get(ThreadLocalRandom.current().nextInt(present.size())));
+        // Bias toward whoever hasn't held the mantle yet, so "a full rotation" actually converges instead
+        // of being a coupon-collector gamble between the same two players.
+        List<Player> unvisited = new ArrayList<>(present);
+        unvisited.removeIf(p -> everHeld.contains(p.getUniqueId()));
+        List<Player> pool = unvisited.isEmpty() ? present : unvisited;
+        markChallenger(pool.get(ThreadLocalRandom.current().nextInt(pool.size())));
         Location at = fight.instance().entity().getLocation();
         Fx.sound(at, Sound.BLOCK_NOTE_BLOCK_CHIME, 1.0f, 1.6f);
         fight.plugin().getLogger().fine(() -> "Fallen King challenger rotated on " + reason);
@@ -236,6 +255,7 @@ final class Duel {
 
     private void markChallenger(Player player) {
         challenger = player.getUniqueId();
+        everHeld.add(player.getUniqueId());
         neglectedSinceMs = 0L;
         player.setGlowing(true);
         notice(player, Component.text("YOU ARE THE CHALLENGER", NamedTextColor.GOLD));

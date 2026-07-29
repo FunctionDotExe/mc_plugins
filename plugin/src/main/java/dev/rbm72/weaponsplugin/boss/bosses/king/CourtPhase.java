@@ -36,7 +36,7 @@ final class CourtPhase extends KingPhaseMechanic {
         if (solo()) {
             return fight.duel().ripostes() >= Math.max(1, fight.config().num("court-solo-ripostes", 2));
         }
-        return fight.duel().rotations() >= required();
+        return fight.duel().distinctHolders() >= required();
     }
 
     /** One hand-off per player present: the mantle has been all the way round the group. */
@@ -58,7 +58,7 @@ final class CourtPhase extends KingPhaseMechanic {
             return Component.text("ripostes " + done + "/"
                     + Math.max(1, fight.config().num("court-solo-ripostes", 2)), NamedTextColor.RED);
         }
-        return Component.text("rotation " + Math.min(fight.duel().rotations(), required())
+        return Component.text("rotation " + Math.min(fight.duel().distinctHolders(), required())
                 + "/" + required(), NamedTextColor.RED);
     }
 
@@ -68,6 +68,6 @@ final class CourtPhase extends KingPhaseMechanic {
             int target = Math.max(1, fight.config().num("court-solo-ripostes", 2));
             return Math.min(1.0, (double) fight.duel().ripostes() / target);
         }
-        return Math.min(1.0, (double) fight.duel().rotations() / required());
+        return Math.min(1.0, (double) fight.duel().distinctHolders() / required());
     }
 }

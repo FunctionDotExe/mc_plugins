@@ -115,6 +115,77 @@ public abstract class Weapon {
         return List.of();
     }
 
+    /**
+     * How this weapon's ultimate is earned, or null — the default — for one gated purely on
+     * {@link #ultimateCooldownSeconds()}.
+     * <p>
+     * Opt-in per weapon rather than roster-wide because the two gates say different things about a weapon.
+     * A cooldown ultimate is a tool you plan around ("it's up in 40 seconds, save it for the adds"); a
+     * charge ultimate is a payoff you build toward, and only suits a weapon whose normal use is the
+     * building. Forcing every weapon onto a meter would make the fifty that are fine as timers worse, and
+     * a null here is a considered answer, not an unfinished one.
+     *
+     * @see dev.rbm72.weaponsplugin.ability.ChargeSpec
+     */
+    public dev.rbm72.weaponsplugin.ability.ChargeSpec ultimateChargeSpec() {
+        return null;
+    }
+
+    /**
+     * What each ability slot hits for, in the same units {@link #baseMeleeDamage()} uses — before rarity
+     * scaling, before crits, before the multi-hit an ability may land.
+     * <p>
+     * Exists so a balance sheet can be produced at all. Every weapon's ability damage currently lives in
+     * private fields read from per-weapon config keys, which means there is no view of the roster's damage
+     * distribution anywhere: 57 files each hold one number and nothing holds the comparison, so an outlier
+     * is only discovered by a player finding it. Declaring the numbers here makes
+     * {@code /weaponbalance} able to rank them.
+     * <p>
+     * Empty by default and filled in as each weapon goes through the §0.1 doctrine pass — the sheet reports
+     * an undeclared profile as exactly that rather than as zero damage, so a partially-migrated roster
+     * produces an honest table instead of a flattering one.
+     *
+     * @return slot -> nominal damage per cast. Slots the weapon does not use are simply absent.
+     */
+    public java.util.Map<dev.rbm72.weaponsplugin.ability.CooldownManager.Slot, Double> damageProfile() {
+        return java.util.Map.of();
+    }
+
+    /**
+     * Which boss verbs this weapon answers — see {@link dev.rbm72.weaponsplugin.items.kit.Counterplay}.
+     * <p>
+     * Declared as data rather than left implicit in the ability code so the tooltip can say it and the
+     * balance sheet can audit coverage. A boss with no drop answering its own signature verb is a gap worth
+     * seeing in a table; found by playing the fight, it is just a boss that feels unfair.
+     */
+    public java.util.Set<CounterVerb> counterVerbs() {
+        return java.util.Set.of();
+    }
+
+    /** The vocabulary of things bosses do to players that a drop may be built to answer. */
+    public enum CounterVerb {
+        /** Armour-ignoring stacks — Chill, Static Charge, Infection, Void Echo. */
+        METER("clears the boss's stacks"),
+        /** Forced loss of audio cues, i.e. the Hollow Choir's darkness. */
+        SILENCE("breaks silence"),
+        /** Terrain the boss placed to wall you in or encase you. */
+        PILLARS("shatters the boss's terrain"),
+        /** Floor that cannot be stood on — ice, powder snow, magma. */
+        FOOTING("restores footing"),
+        /** Knockback and forced relocation. */
+        DISPLACEMENT("resists displacement");
+
+        private final String description;
+
+        CounterVerb(String description) {
+            this.description = description;
+        }
+
+        public String description() {
+            return description;
+        }
+    }
+
     public abstract Sound castSound();
 
     public abstract Sound hitSound();
@@ -275,11 +346,33 @@ public abstract class Weapon {
                 }
                 body.add(text);
             }
-            if (cooldowns[i] > 0) {
+            // An earned ultimate shows what fills it, not a timer. Printing the cooldown floor next to a
+            // charge meter reads as "wait 8 seconds", which is the opposite of what the meter is for.
+            boolean chargedUltimate = i == 3 && ultimateChargeSpec() != null;
+            if (chargedUltimate) {
+                body.add(Component.text(" ◈ ", NamedTextColor.DARK_GRAY)
+                        .decoration(TextDecoration.ITALIC, false)
+                        .append(Component.text("Fills " + ultimateChargeSpec().label() + " in combat", NamedTextColor.DARK_GRAY)
+                                .decoration(TextDecoration.ITALIC, true)));
+            } else if (cooldowns[i] > 0) {
                 body.add(Component.text(" ⏱ ", NamedTextColor.DARK_GRAY)
                         .decoration(TextDecoration.ITALIC, false)
                         .append(Component.text(String.format(Locale.ROOT, "%.1fs", cooldowns[i]), NamedTextColor.DARK_GRAY)
                                 .decoration(TextDecoration.ITALIC, true)));
+            }
+        }
+
+        // Boss counterplay, spelled out. A drop that answers a boss verb is worth carrying into that
+        // fight for a reason no damage number communicates, so the tooltip has to say it out loud —
+        // otherwise the design exists only in the ability code and nobody gears around it.
+        if (!counterVerbs().isEmpty()) {
+            body.add(Component.empty());
+            body.add(Component.text("⛨ Counterplay", NamedTextColor.AQUA)
+                    .decoration(TextDecoration.BOLD, true)
+                    .decoration(TextDecoration.ITALIC, false));
+            for (CounterVerb verb : counterVerbs()) {
+                body.add(Component.text(" • " + verb.description(), NamedTextColor.DARK_AQUA)
+                        .decoration(TextDecoration.ITALIC, false));
             }
         }
 

@@ -4,6 +4,8 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import org.bukkit.Sound;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -62,6 +64,26 @@ public abstract class BossAttack {
     }
 
     /**
+     * One tick of a damage-over-time effect — a lingering cloud, a burning trail, a sustained beam,
+     * an aura pulse. Health comes off and the tell still plays, but the player keeps their camera,
+     * their momentum and their i-frames, because none of those belong to a chip tick.
+     * <p>
+     * A discrete hit — the slam, the nova, the detonation — stays on
+     * {@code target.damage(amount, ctx.boss())}: the hurt tilt is the feedback that lands the blow.
+     * See {@link TickDamage} for what exactly this trades away.
+     * <p>
+     * Non-players in the blast — a stray cow, another mob caught in the cloud — have no camera to
+     * shake, so they take the tick through the ordinary pipeline.
+     */
+    protected static void tickHurt(AttackContext ctx, LivingEntity target, double amount) {
+        if (target instanceof Player player) {
+            TickDamage.apply(player, amount, ctx.boss());
+        } else if (target != null && target.isValid() && !target.isDead() && amount > 0) {
+            target.damage(amount, ctx.boss());
+        }
+    }
+
+    /**
      * Ticks {@code perTelegraphTick} once a tick for {@code telegraphTicks} (clamped to at least
      * {@value #MIN_TELEGRAPH_TICKS}), then runs {@code execute} once, then waits
      * {@code recoveryTicks} before calling {@code onComplete}.
@@ -84,6 +106,7 @@ public abstract class BossAttack {
                 if (elapsed < clampedTelegraph) {
                     runSafely(perTelegraphTick);
                     runSafely(() -> showCastBar(castCtx, elapsed, clampedTelegraph));
+                    runSafely(() -> playTelegraphCue(castCtx, elapsed, clampedTelegraph));
                     elapsed++;
                     return;
                 }
@@ -119,6 +142,38 @@ public abstract class BossAttack {
         for (Player player : Arena.playersNear(ctx.bossLocation(), ctx.arena().radius())) {
             plugin.actionBarHub().flash(player, bar, CAST_BAR_HOLD_MS, ActionBarHub.PRIORITY_SUSTAINED);
         }
+    }
+
+    /**
+     * The audible half of a telegraph: a low wind-up note the instant the cast starts, and a higher, louder
+     * one on the last tick before it lands.
+     * <p>
+     * Every mechanic in the roster telegraphed visually only — ground particles and a cast bar, both of
+     * which require looking at the right part of the screen at the right moment, in a fight that is
+     * deliberately full of particles. Two notes a fixed interval apart are readable peripherally and
+     * without reading anything, and the rising pitch is what makes "it is charging" and "it lands now"
+     * distinguishable rather than one continuous noise.
+     * <p>
+     * Deliberately two keys for the whole roster rather than a key per attack. A telegraph cue is a
+     * <em>language</em>: its value is that "that rising pair means something is about to land on me" is
+     * learned once and then holds for all seventeen bosses. Two hundred distinct wind-up sounds would be
+     * two hundred sounds nobody learns, and the cue would carry no information at all. Which attack it is
+     * remains the cast bar's job, and what it does remains the attack's own impact sound's job — both of
+     * which are per-attack already.
+     */
+    private void playTelegraphCue(AttackContext ctx, int elapsed, int totalTicks) {
+        if (ctx == null || !plugin.getConfig().getBoolean("boss-audio.telegraph-cues", true)) {
+            return;
+        }
+        boolean imminent = elapsed == totalTicks - 1;
+        if (elapsed != 0 && !imminent) {
+            return;
+        }
+        BossAudio.play(ctx.bossLocation(),
+                imminent ? "boss.telegraph.release" : "boss.telegraph.windup",
+                imminent ? Sound.BLOCK_NOTE_BLOCK_BELL : Sound.BLOCK_NOTE_BLOCK_BASEDRUM,
+                imminent ? 1.1f : 0.8f,
+                imminent ? 1.5f : 0.6f);
     }
 
     /** Clears the cast bar the instant the attack lands — recovery isn't part of the cast, it shouldn't linger. */

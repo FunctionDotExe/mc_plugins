@@ -77,7 +77,9 @@ public final class PandemicSurgeAttack extends BossAttack {
                     Fx.sound(ctx.bossLocation(), Sound.ENTITY_WITCH_AMBIENT, 0.9f, 0.5f);
                 },
                 () -> {
-                    ctx.instance().setForcedInvulnerable(true);
+                    // No setForcedInvulnerable here: the Warden is "not invulnerable" in any band (§0.2
+                    // rule 5, and his own P3/P4 rule is a per-attacker Infection filter, not a gate) — he
+                    // stays fully hittable through the whole outbreak, same as every other attack he has.
                     Location bossLoc = ctx.bossLocation();
                     double radius = ctx.arena().radius();
 
@@ -126,7 +128,6 @@ public final class PandemicSurgeAttack extends BossAttack {
     }
 
     private void resolve(AttackContext ctx, Set<UUID> stillInfected) {
-        ctx.instance().setForcedInvulnerable(false);
         Location loc = ctx.bossLocation();
         if (stillInfected.isEmpty()) {
             ctx.instance().recordExposure();

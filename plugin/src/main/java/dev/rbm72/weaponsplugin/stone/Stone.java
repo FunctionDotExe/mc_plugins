@@ -37,6 +37,41 @@ public abstract class Stone {
 
     public abstract String id();
 
+    /**
+     * Per-stone tunable, read live off {@code stones.<id>.<key>}. Mirrors the {@code weapons.<id>.*} /
+     * {@code bosses.<id>.*} convention — every number a stone uses gets a key, so a movement perk can be
+     * retuned without a recompile the same way every other tuned number in this plugin can.
+     */
+    protected final double configDouble(String key, double def) {
+        return plugin.getConfig().getDouble("stones." + id() + "." + key, def);
+    }
+
+    protected final int configInt(String key, int def) {
+        return plugin.getConfig().getInt("stones." + id() + "." + key, def);
+    }
+
+    protected final boolean configBoolean(String key, boolean def) {
+        return plugin.getConfig().getBoolean("stones." + id() + "." + key, def);
+    }
+
+    /**
+     * Potion-effect amplifier rendered the way the game writes it — amplifier 1 is "II".
+     * <p>
+     * Here rather than in each passive stone because the amplifier is config-backed: a tooltip that says
+     * "Speed II" while the config says amplifier 2 is a lie, and three stones each hand-writing the same
+     * conversion is three chances to only fix two of them.
+     */
+    protected static String roman(int amplifier) {
+        return switch (amplifier) {
+            case 0 -> "I";
+            case 1 -> "II";
+            case 2 -> "III";
+            case 3 -> "IV";
+            case 4 -> "V";
+            default -> String.valueOf(amplifier + 1);
+        };
+    }
+
     public abstract Material material();
 
     public abstract String displayNameText();
@@ -48,6 +83,29 @@ public abstract class Stone {
 
     /** Fires twice per second for each equipped stone. Drives passive movement buffs. */
     public void onEquipTick(Player player) {
+    }
+
+    /**
+     * Fires <em>every tick</em> for each equipped stone — see {@code StoneMovementTask}.
+     * <p>
+     * {@link #onEquipTick} runs at 2Hz, which is the right cadence for refreshing a potion effect and the
+     * wrong one for anything that answers a movement input: at 0.5s granularity a wall-grab happens a third
+     * of a second after you reached the wall, and a double-jump is unavailable for the first ten ticks of
+     * every jump. Anything that has to feel connected to the player's own frame goes here instead.
+     */
+    public void onFastTick(Player player) {
+    }
+
+    /**
+     * Fires every tick for each online player who does <em>not</em> have this stone equipped.
+     * <p>
+     * Exists because a stone that arms a vanilla capability on its wielder — {@code allowFlight}, in
+     * {@link dev.rbm72.weaponsplugin.stone.stones.SkyleapStone}'s case — leaves that capability switched on
+     * if the stone is unsocketed at the wrong moment, and "unsocket mid-air for permanent creative flight"
+     * is an exploit no amount of care inside the equipped path can close. A stone that arms nothing has
+     * nothing to do here, which is why this defaults to a no-op.
+     */
+    public void onIdleTick(Player player) {
     }
 
     /** True if this stone grants a standalone active ability, triggered by double-tapping sneak. */

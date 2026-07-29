@@ -3,6 +3,7 @@ package dev.rbm72.weaponsplugin.boss.gates;
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Arena;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.TickDamage;
 import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
 import dev.rbm72.weaponsplugin.boss.props.ArenaTotem;
 import dev.rbm72.weaponsplugin.fx.Fx;
@@ -171,7 +172,7 @@ public final class SkyshotGate implements PhaseMechanic {
             }
             Fx.sound(bossLoc, Sound.BLOCK_BEACON_AMBIENT, 1.0f, 0.7f);
             for (Player player : Arena.combatants(bossLoc, instance.arena().radius())) {
-                player.damage(drainDamage * standing.size(), instance.entity());
+                TickDamage.apply(instance, player, drainDamage * standing.size());
             }
         }, interval, interval);
         instance.trackTask(drainTask);

@@ -99,8 +99,15 @@ public final class StormcallAttack extends BossAttack {
                                         }
                                     }
                                 }
-                                // Screen-shake: small vertical nudges to every player in the arena.
+                                // Screen-shake: small vertical nudges to every player in the arena. This is
+                                // the one shove in the roster that carries no mechanic — it is feedback for
+                                // the barrage, not the barrage's payload — so a knockback-negating accessory
+                                // skips it. Displacement that IS an attack's payload (Gale Push, Wing Gust)
+                                // deliberately still lands; negating those would make them ignorable (§0.2).
                                 for (Player player : ctx.arena().playersInside()) {
+                                    if (plugin.accessoryManager().negatesKnockback(player)) {
+                                        continue;
+                                    }
                                     Movement.launchTarget(player, nudge);
                                 }
                                 Fx.sound(center, Sound.ENTITY_LIGHTNING_BOLT_IMPACT, 1.35f, 0.9f);

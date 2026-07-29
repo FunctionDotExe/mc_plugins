@@ -124,7 +124,7 @@ public final class MoltenOverloadAttack extends BossAttack {
                             double rSq = stokeRadius * stokeRadius;
                             for (Player player : Arena.combatants(loc, radius)) {
                                 if (player.getLocation().distanceSquared(loc) <= rSq) {
-                                    player.damage(stokeDamage, ctx.boss());
+                                    tickHurt(ctx, player, stokeDamage);
                                     player.setFireTicks(Math.max(player.getFireTicks(), 40));
                                 }
                             }

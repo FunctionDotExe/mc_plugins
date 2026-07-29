@@ -33,6 +33,10 @@ final class EyeOfTheStormPhase extends StormPhaseMechanic {
 
     @Override
     protected void onArm() {
+        // Rods lost in P2 don't respawn until "next phase" (§3.4) — without this, a group that lost every
+        // rod earlier would carry zero rods into the one phase whose entire damage rule depends on being
+        // able to discharge at all.
+        fight.rods().raiseAll();
         fight.pylons().build();
         corridorAngle = ThreadLocalRandom.current().nextDouble(0, 360.0);
     }
@@ -67,7 +71,7 @@ final class EyeOfTheStormPhase extends StormPhaseMechanic {
                 if (inCorridor(player, centre, halfWidth)) {
                     continue;
                 }
-                hurt(player, damage);
+                tickHurt(player, damage);
                 Fx.coloredBurst(player.getLocation().add(0, 1, 0), StormFight.STORM_WHITE, 1.4f, 14, 0.4);
             }
         }

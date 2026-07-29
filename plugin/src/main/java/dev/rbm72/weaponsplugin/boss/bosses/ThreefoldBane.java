@@ -7,16 +7,10 @@ import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
 import dev.rbm72.weaponsplugin.boss.events.ConvergenceNukeEvent;
 import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
-import dev.rbm72.weaponsplugin.boss.mechanics.EscalatingDoomMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.HowlConeMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.ThreeHeadsMechanic;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.DecayNovaAttack;
+import dev.rbm72.weaponsplugin.boss.bosses.bane.BanePhases;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.HealingAddsAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.SkullVolleyAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.TripleGazeAttack;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.weapons.Soulcrown;
 import net.kyori.adventure.text.Component;
@@ -37,9 +31,19 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * The Threefold Bane — a wither given three ages at once. It spawns already deadly and only gets
- * bigger the longer the fight drags: each phase it swells further (bone plates cracking to make
- * room), never smaller, until Full Coronation makes it a screen-filling giant for its last stand.
+ * The Threefold Bane — three minds on three different clocks, and the roster's <b>tempo</b> boss. Its
+ * heads fire on three real redstone loops at the arena edge, each with its own note block, so the whole
+ * fight is rhythm: you learn the beat, you act between beats, and you watch the three clocks drift
+ * toward alignment, because a <b>Convergence</b> — two or three striking together — is unsurvivable in
+ * the open (batch-3 spec §2).
+ * <ol>
+ *   <li><b>Three Clocks</b> — learn the beats and survive the first Convergence.</li>
+ *   <li><b>Swelling</b> — it grows, the gaps shrink, and sabotaging a loop becomes mandatory.</li>
+ *   <li><b>Coronation</b> — it re-tunes its own clocks behind you; break two alignments to pass.</li>
+ *   <li><b>All Three Speak</b> — the machinery locks at whatever tempo the group engineered.</li>
+ * </ol>
+ * The clocks are the schedule, not a picture of it: {@code bane.Clocks} reads each head's period off the
+ * repeaters physically sitting in its loop every pulse, which is §2.8's non-negotiable constraint.
  */
 public final class ThreefoldBane extends Boss {
 
@@ -52,35 +56,33 @@ public final class ThreefoldBane extends Boss {
     public ThreefoldBane(WeaponsPlugin plugin) {
         super(plugin);
 
-        SkullVolleyAttack skullVolley = new SkullVolleyAttack(plugin);
-        DecayNovaAttack decayNova = new DecayNovaAttack(plugin);
-        TripleGazeAttack tripleGaze = new TripleGazeAttack(plugin);
+        // The three heads' attacks are fired by the clocks, not by the attack selector — a head that
+        // also attacked off-beat would make the note blocks a decoration instead of a schedule. What is
+        // left in the pool is the one thing that has no clock of its own.
         HealingAddsAttack boneChoir = new HealingAddsAttack(plugin, "threefold_bane", "Bone Choir",
                 EntityType.WITHER_SKELETON, DECAY_GREY);
 
         this.phases = List.of(
-                // Discord Howl: three roars on a stagger, and the seams where two of them overlap are
-                // what actually kills. It punishes the group's shape rather than any one player's feet.
-                new BossPhase("Awakening", 1.0,
-                        List.of(skullVolley, decayNova),
+                // Three Clocks: the beats, the note blocks, and one Convergence to survive.
+                new BossPhase("Three Clocks", 1.0,
+                        List.of(boneChoir),
                         false, ThreefoldBane::onEnterPhase1,
-                        this::discordHowl),
-                // Ungated: no mechanic at all, just three heads and a full attack pool. Pure race.
-                new BossPhase("First Swelling", 0.75,
-                        List.of(skullVolley, decayNova, tripleGaze),
-                        false, ThreefoldBane::onEnterPhase2),
-                // Three Heads, Three Mechanics: its signature. A bomb, a hunter and an execution all
-                // running at once on their own clocks — the phase is triage, not execution.
-                new BossPhase("Second Swelling", 0.40,
-                        List.of(skullVolley, decayNova, tripleGaze, boneChoir),
+                        instance -> BanePhases.threeClocks(instance, 0.76)),
+                // Swelling: bigger body, smaller gaps, and a loop that has to be lengthened.
+                new BossPhase("Swelling", 0.76,
+                        List.of(boneChoir),
+                        false, ThreefoldBane::onEnterPhase2,
+                        instance -> BanePhases.swelling(instance, 0.52)),
+                // Coronation: an active tug-of-war over the machinery, timed against the beat.
+                new BossPhase("Coronation", 0.52,
+                        List.of(boneChoir),
                         false, ThreefoldBane::onEnterPhase3,
-                        this::threeHeads),
-                // Its coronation runs on a clock only sustained damage holds down, and every overflow
-                // leaves it permanently larger and harder to hurt.
-                new BossPhase("Full Coronation", 0.15,
-                        List.of(skullVolley, decayNova, tripleGaze, boneChoir),
+                        instance -> BanePhases.coronation(instance, 0.26)),
+                // All Three Speak: locked tempo, no sabotage left, pure execution.
+                new BossPhase("All Three Speak", 0.26,
+                        List.of(boneChoir),
                         true, ThreefoldBane::onEnterEnrage,
-                        this::coronationClock));
+                        BanePhases::allThreeSpeak));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Soulcrown(plugin).createItem())
@@ -117,64 +119,21 @@ public final class ThreefoldBane extends Boss {
     }
 
     /**
-     * Discord Howl: all three heads roar on a stagger, and where two cones overlap the damage
-     * multiplies. A clumped group occupies a small enough wedge for one seam to catch all of them,
-     * so it enforces spacing without ever printing "spread out".
+     * Four times the roster default. Walking out to a loop, placing a repeater and getting back before
+     * the next beat is a slow physical act under fire, and {@code BanePhaseMechanic#progressSignal}
+     * counts repeaters, desyncs and Convergences so a group doing the engineering never reads as stalled.
      */
-    private PhaseMechanic discordHowl(BossInstance instance) {
-        return new HowlConeMechanic(instance, "Discord Howl", SOUL_BLUE,
-                configInt("howl-cone-count", 3),
-                configDouble("howl-half-width-degrees", 34.0),
-                configInt("howl-interval-ticks", 150),
-                configInt("howl-telegraph-ticks", 44),
-                configDouble("howl-range", 22.0),
-                configDouble("howl-damage", 11.0),
-                configDouble("howl-overlap-multiplier", 2.2));
+    @Override
+    public int phaseFloorTimeoutMs() {
+        return configInt("phase-floor-timeout-ms", 180_000);
     }
 
-    /**
-     * Three Heads, Three Mechanics: its signature. One head winds up a bomb, one throws something
-     * that follows you, and one marks a player for execution unless they move — all simultaneously,
-     * all on separate clocks. Breaking a head silences that one problem for a while and nothing else.
-     */
-    private PhaseMechanic threeHeads(BossInstance instance) {
-        return new ThreeHeadsMechanic(instance, "Three Heads", SOUL_BLUE, Material.WITHER_SKELETON_SKULL,
-                configDouble("heads-health", 45.0),
-                configInt("heads-silence-ticks", 200),
-                configInt("heads-nuke-interval-ticks", 130),
-                configInt("heads-nuke-telegraph-ticks", 40),
-                configDouble("heads-nuke-radius", 4.5),
-                configDouble("heads-nuke-damage", 16.0),
-                configInt("heads-seeker-interval-ticks", 150),
-                configDouble("heads-seeker-damage", 12.0),
-                configInt("heads-mark-interval-ticks", 200),
-                configInt("heads-mark-fuse-ticks", 80),
-                configDouble("heads-mark-damage", 24.0),
-                configDouble("heads-mark-escape-distance", 8.0),
-                configDouble("heads-placement-fraction", 0.55));
-    }
-
-    /**
-     * Full Coronation: a clock the group can only push back with sustained damage. Each overflow
-     * leaves it permanently bigger, faster and harder — falling behind compounds.
-     */
-    private PhaseMechanic coronationClock(BossInstance instance) {
-        return new EscalatingDoomMechanic(instance, "Coronation", DECAY_GREY,
-                configDouble("coronation-fill-per-second", 5.0),
-                configDouble("coronation-damage-per-point", 5.5),
-                configDouble("coronation-cap", 100.0),
-                configDouble("coronation-scale-step", 1.09),
-                configDouble("coronation-speed-step", 1.07),
-                configDouble("coronation-harden-step", 0.08),
-                configDouble("coronation-overflow-damage", 15.0));
-    }
-
-    /** Offset from its phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    /** Offset from its phase boundaries (0.76 / 0.52 / 0.26) so they land mid-phase, not on transitions. */
     @Override
     public List<BossEvent> events() {
         return List.of(
-                new HitCountShieldEvent(plugin, id(), new double[] {0.88, 0.32}),
-                new ConvergenceNukeEvent(plugin, id(), new double[] {0.60, 0.26}));
+                new HitCountShieldEvent(plugin, id(), new double[] {0.88, 0.38}),
+                new ConvergenceNukeEvent(plugin, id(), new double[] {0.64, 0.32}));
     }
 
     @Override
@@ -222,8 +181,8 @@ public final class ThreefoldBane extends Boss {
         Fx.expandingRings(instance.plugin(), loc, Particle.SOUL, 6.0, 3, 2L);
         Fx.sound(loc, Sound.ENTITY_WITHER_HURT, 1.1f, 0.6f);
         instance.showTitle(
-                Component.text("First Swelling", NamedTextColor.AQUA).decoration(TextDecoration.BOLD, true),
-                Component.text("Its ribcage cracks wider to make room", NamedTextColor.GRAY));
+                Component.text("Swelling", NamedTextColor.AQUA).decoration(TextDecoration.BOLD, true),
+                Component.text("Less room between beats — go lengthen a loop", NamedTextColor.GRAY));
     }
 
     private static void onEnterPhase3(BossInstance instance) {
@@ -233,8 +192,8 @@ public final class ThreefoldBane extends Boss {
         Fx.point(loc.clone().add(0, 1.4, 0), Particle.SOUL, 24);
         Fx.sound(loc, Sound.ENTITY_WITHER_SPAWN, 0.9f, 0.6f);
         instance.showTitle(
-                Component.text("Second Swelling", NamedTextColor.DARK_AQUA).decoration(TextDecoration.BOLD, true),
-                Component.text("A choir of the dead rises to bolster it", NamedTextColor.GRAY));
+                Component.text("Coronation", NamedTextColor.DARK_AQUA).decoration(TextDecoration.BOLD, true),
+                Component.text("It is re-tuning its own clocks — break the alignments", NamedTextColor.GRAY));
     }
 
     private static void onEnterEnrage(BossInstance instance) {
@@ -245,8 +204,8 @@ public final class ThreefoldBane extends Boss {
         Fx.expandingRings(instance.plugin(), loc, Particle.SOUL_FIRE_FLAME, 7.5, 4, 2L);
         Fx.sound(loc, Sound.ENTITY_WITHER_SPAWN, 1.3f, 0.7f);
         instance.showTitle(
-                Component.text("☠ FULL CORONATION ☠", NamedTextColor.RED).decoration(TextDecoration.BOLD, true),
-                Component.text("Every age it has lived crowns it at once", NamedTextColor.GRAY));
+                Component.text("☠ ALL THREE SPEAK ☠", NamedTextColor.RED).decoration(TextDecoration.BOLD, true),
+                Component.text("Locked at the tempo you left it — count it out", NamedTextColor.GRAY));
     }
 
     private static ItemStack banehideArmor(Material material) {

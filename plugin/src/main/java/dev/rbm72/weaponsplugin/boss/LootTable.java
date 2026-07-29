@@ -19,6 +19,7 @@ public final class LootTable {
 
     private final List<Supplier<ItemStack>> guaranteed = new ArrayList<>();
     private final List<WeightedEntry> weighted = new ArrayList<>();
+    private final List<Supplier<ItemStack>> firstClear = new ArrayList<>();
 
     public LootTable guaranteed(Supplier<ItemStack> item) {
         guaranteed.add(item);
@@ -28,6 +29,20 @@ public final class LootTable {
     /** @param chance in [0, 1] — e.g. 0.008 for a sub-1% cosmetic drop. */
     public LootTable weighted(double chance, Supplier<ItemStack> item) {
         weighted.add(new WeightedEntry(chance, item));
+        return this;
+    }
+
+    /**
+     * Handed <em>directly to each player</em> the first time they personally clear this boss, and never
+     * again — not dropped on the ground, so a repeat clearer standing next to them cannot pick it up.
+     * <p>
+     * The only entry kind that needs the persistent kill ledger
+     * ({@link dev.rbm72.weaponsplugin.boss.progress.BossProgressStore}) to mean anything, and the reason
+     * that ledger had to exist before first-clear rewards could: "have they beaten this before" is not a
+     * question a fight can answer from its own state.
+     */
+    public LootTable firstClear(Supplier<ItemStack> item) {
+        firstClear.add(item);
         return this;
     }
 
@@ -41,10 +56,24 @@ public final class LootTable {
 
     /** Same roll as {@link #roll()} but keeps each drop's odds — lets callers flag a rare hit for a broadcast. */
     public List<RolledDrop> rollWithOdds() {
+        return rollWithOdds(1.0);
+    }
+
+    /**
+     * @param guaranteedChance odds each guaranteed entry actually drops this time, in [0, 1]. 1.0 is the
+     *        normal case — a first clear for anybody present. Below 1.0 is a pure farm run (every player
+     *        in the arena has killed this boss before), where the signature item becomes a roll rather
+     *        than a certainty. That difference is the whole of "first-clear vs repeat loot": without it a
+     *        group's hundredth kill pays exactly like their first, and the roster has no progression
+     *        curve at all, only a treadmill. See {@code Boss#repeatClearSignatureChance()}.
+     */
+    public List<RolledDrop> rollWithOdds(double guaranteedChance) {
         Random random = new Random();
         List<RolledDrop> drops = new ArrayList<>();
         for (Supplier<ItemStack> item : guaranteed) {
-            drops.add(new RolledDrop(item.get(), 1.0));
+            if (guaranteedChance >= 1.0 || random.nextDouble() < guaranteedChance) {
+                drops.add(new RolledDrop(item.get(), Math.min(1.0, Math.max(0.0, guaranteedChance))));
+            }
         }
         for (WeightedEntry entry : weighted) {
             if (random.nextDouble() < entry.chance()) {
@@ -52,6 +81,19 @@ public final class LootTable {
             }
         }
         return drops;
+    }
+
+    /** Every first-clear entry, freshly built. One call per first-clearing player — they each get their own copy. */
+    public List<ItemStack> rollFirstClear() {
+        List<ItemStack> items = new ArrayList<>();
+        for (Supplier<ItemStack> item : firstClear) {
+            items.add(item.get());
+        }
+        return items;
+    }
+
+    public boolean hasFirstClear() {
+        return !firstClear.isEmpty();
     }
 
     /** Every weighted entry's odds and a sample item (for display name/type) — never rolled, purely descriptive. Used by {@code /bossinfo}. */

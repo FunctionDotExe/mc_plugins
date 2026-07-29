@@ -82,7 +82,7 @@ public final class TornadoAttack extends BossAttack {
                                         player.setVelocity(player.getVelocity().add(pull.normalize().multiply(pullStrength)));
                                     }
                                     if (ticks % 20 == 0) {
-                                        player.damage(damagePerSecond, ctx.boss());
+                                        tickHurt(ctx, player, damagePerSecond);
                                         Fx.coloredBurst(player.getLocation().add(0, 1, 0), STORM_WHITE, 1.1f, 10, 0.3);
                                         Fx.burst(player.getLocation().add(0, 1, 0), Particle.CLOUD, 8, 0.3);
                                     }

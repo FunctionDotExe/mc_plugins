@@ -7,18 +7,11 @@ import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
 import dev.rbm72.weaponsplugin.boss.events.BeaconEvent;
 import dev.rbm72.weaponsplugin.boss.events.SpreadCheckEvent;
-import dev.rbm72.weaponsplugin.boss.mechanics.HazardPatchMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.ParasiteAddMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.RegeneratingShieldMechanic;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.BlazeGraftAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.EndermanGraftAttack;
+import dev.rbm72.weaponsplugin.boss.bosses.graft.GraftPhases;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.FrenziedGraftAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.RendingClawAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.SpiderGraftAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.WitherGraftAttack;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.weapons.Spinelash;
 import net.kyori.adventure.text.Component;
@@ -34,22 +27,31 @@ import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
-import org.bukkit.potion.PotionEffectType;
 
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * The Grafted Horror — a failed alchemical experiment stitched together from the remains of every
- * beast that ever fell in its arena. Four phases, each waking up one more graft it never had before
- * (spider, blaze marrow, wither bone, warp eyes) while keeping every earlier one; enrage tears the
- * seams wide open and every donor crawls out to fight one last time at its side.
+ * The Grafted Horror — a corpse someone wired back up and never turned off. Its attacks do not come
+ * from the body at all: they come from bolted-on <b>graft modules</b> (dispenser, piston, observer,
+ * repair), each powered by a real redstone line running across the arena floor to a real power source
+ * (batch-3 spec §1). You do not out-damage it. You disable it, limb by limb, by cutting circuits — and
+ * it re-grafts every line you cut, so the fight is a maintenance race, not a damage race.
+ * <ol>
+ *   <li><b>Two Grafts</b> — dispenser and piston. The first cut teaches everything.</li>
+ *   <li><b>Observer Graft</b> — a real observer arc you must approach from outside, or bait.</li>
+ *   <li><b>Self-Repair</b> — a module that rebuilds severed lines, so cuts have to be simultaneous.</li>
+ *   <li><b>Seams Open</b> — the modules tear loose and keep firing from the floor as turrets, one per
+ *       module the group never cut.</li>
+ * </ol>
+ * It is never invulnerable in any band; see {@code graft.GraftPhaseMechanic}'s header for why this
+ * boss needs no damage wall at all.
  */
 public final class GraftedHorror extends Boss {
 
-    private static final Color RUST = Color.fromRGB(140, 60, 30);
+    private static final Color RUST = Color.fromRGB(150, 70, 35);
     private static final Color SICKLY_GREEN = Color.fromRGB(90, 130, 60);
-    private static final Color EMBER = Color.fromRGB(255, 120, 0);
+    private static final Color SPARK_RED = Color.fromRGB(255, 60, 40);
     private static final Color DECAY_GREY = Color.fromRGB(60, 60, 60);
 
     private final List<BossPhase> phases;
@@ -58,36 +60,33 @@ public final class GraftedHorror extends Boss {
     public GraftedHorror(WeaponsPlugin plugin) {
         super(plugin);
 
+        // Its own body only ever does one thing — a heavy, committed claw — because somebody always has
+        // to be holding its attention while everyone else does wire work (§1.2). Ranged pressure is the
+        // modules' job, and duplicating it in the attack pool would make the circuits decorative.
         RendingClawAttack rendingClaw = new RendingClawAttack(plugin);
-        SpiderGraftAttack spiderGraft = new SpiderGraftAttack(plugin);
-        BlazeGraftAttack blazeGraft = new BlazeGraftAttack(plugin);
-        WitherGraftAttack witherGraft = new WitherGraftAttack(plugin);
-        EndermanGraftAttack endermanGraft = new EndermanGraftAttack(plugin);
         FrenziedGraftAttack frenziedGraft = new FrenziedGraftAttack(plugin);
 
         this.phases = List.of(
-                // Toxic Graft: the graft weeps across the floor and anything standing in it rots. It
-                // denies ground rather than dealing real damage, so the ask is to keep giving way.
-                new BossPhase("The First Graft", 1.0,
-                        List.of(rendingClaw, spiderGraft),
+                // Two Grafts: two live modules, two visible lines. Exits on both being cut once.
+                new BossPhase("Two Grafts", 1.0,
+                        List.of(rendingClaw),
                         false, GraftedHorror::onEnterPhase1,
-                        this::toxicGraft),
-                // Ungated: no mechanic, just the menagerie. Its one stretch of straight fighting.
-                new BossPhase("Marrow Ignition", 0.75,
-                        List.of(rendingClaw, spiderGraft, blazeGraft),
-                        false, GraftedHorror::onEnterPhase2),
-                // Suture Shield: its signature. The shield knits faster than a heavy weapon can cut, so
-                // the phase is decided by how many blows a group can land per second, not how hard.
-                new BossPhase("Wither Sinew", 0.40,
-                        List.of(rendingClaw, spiderGraft, blazeGraft, witherGraft, endermanGraft),
+                        instance -> GraftPhases.twoGrafts(instance, 0.74)),
+                // Observer Graft: line-of-sight discipline and wire work at the same time.
+                new BossPhase("Observer Graft", 0.74,
+                        List.of(rendingClaw),
+                        false, GraftedHorror::onEnterPhase2,
+                        instance -> GraftPhases.observerGraft(instance, 0.50)),
+                // Self-Repair: one cut is now worthless. Three at once, inside a window the group opens.
+                new BossPhase("Self-Repair", 0.50,
+                        List.of(rendingClaw),
                         false, GraftedHorror::onEnterPhase3,
-                        this::sutureShield),
-                // Limb Detachment: a piece of it breaks off and has to be put down before it crawls
-                // home. Late roster, so letting it reattach hardens the horror permanently.
-                new BossPhase("Full Metamorphosis", 0.15,
-                        List.of(rendingClaw, spiderGraft, blazeGraft, witherGraft, endermanGraft, frenziedGraft),
+                        instance -> GraftPhases.selfRepair(instance, 0.24)),
+                // Seams Open: the turret field is whatever the group let run all fight.
+                new BossPhase("Seams Open", 0.24,
+                        List.of(rendingClaw, frenziedGraft),
                         true, GraftedHorror::onEnterEnrage,
-                        this::limbDetachment));
+                        GraftPhases::seamsOpen));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Spinelash(plugin).createItem())
@@ -124,64 +123,21 @@ public final class GraftedHorror extends Boss {
     }
 
     /**
-     * Toxic Graft: weeping patches spread across the floor and wither anything standing in them. The
-     * tick damage is deliberately survivable — being boxed in by patches you ignored for twenty
-     * seconds is the real failure, not any single one of them.
+     * Four times the roster default, same reasoning as the Storm Tyrant: tracing a line, cutting it, and
+     * timing three cuts against a repair window are physical acts under fire rather than a burst window,
+     * and {@code GraftPhaseMechanic#progressSignal} resets the clock on every cut the group lands.
      */
-    private PhaseMechanic toxicGraft(BossInstance instance) {
-        return new HazardPatchMechanic(instance, "Toxic Graft", SICKLY_GREEN, Particle.SNEEZE,
-                configInt("graft-spawn-interval-ticks", 80),
-                configInt("graft-max-patches", 6),
-                configDouble("graft-start-radius", 2.4),
-                configDouble("graft-max-radius", 4.6),
-                configDouble("graft-growth-per-second", 0.22),
-                configInt("graft-lifetime-ticks", 300),
-                configDouble("graft-damage-per-second", 2.5),
-                PotionEffectType.WITHER, 0,
-                configDouble("graft-placement-fraction", 0.75));
+    @Override
+    public int phaseFloorTimeoutMs() {
+        return configInt("phase-floor-timeout-ms", 180_000);
     }
 
-    /**
-     * Suture Shield: its signature. Every blow severs a fixed slice of the shield regardless of how
-     * hard it hit, and the shield knits back every second — so attack speed, not damage per swing,
-     * decides the phase. It never blocks outright, so a slow group still finishes.
-     */
-    private PhaseMechanic sutureShield(BossInstance instance) {
-        return new RegeneratingShieldMechanic(instance, "Suture Shield", RUST,
-                configDouble("suture-max-shield", 60.0),
-                configDouble("suture-regen-per-second", 7.0),
-                configDouble("suture-loss-per-hit", 4.0),
-                configDouble("suture-max-damage-reduction", 0.7),
-                configInt("suture-severed-ticks", 150),
-                configDouble("suture-exposed-multiplier", 2.0),
-                configInt("suture-stagger-ticks", 50));
-    }
-
-    /**
-     * Limb Detachment: an arm tears free and fights on its own. Kill it inside its window and the
-     * horror loses the mass for good; let it crawl back and it heals and permanently hardens.
-     */
-    private PhaseMechanic limbDetachment(BossInstance instance) {
-        return new ParasiteAddMechanic(instance, "Limb Detachment", "Severed Arm", DECAY_GREY,
-                EntityType.SPIDER,
-                configDouble("limb-health", 55.0),
-                false,
-                configInt("limb-window-ticks", 220),
-                configInt("limb-respawn-ticks", 150),
-                configDouble("limb-heal-per-second", 1.5),
-                0.0,
-                configDouble("limb-reattach-heal", 50.0),
-                configDouble("limb-reattach-hardening", 0.07),
-                configInt("limb-exposed-ticks", 150),
-                configDouble("limb-exposed-multiplier", 1.9));
-    }
-
-    /** Offset from its phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    /** Offset from its phase boundaries (0.74 / 0.50 / 0.24) so they land mid-phase, not on transitions. */
     @Override
     public List<BossEvent> events() {
         return List.of(
-                new BeaconEvent(plugin, id(), new double[] {0.86, 0.32}),
-                new SpreadCheckEvent(plugin, id(), new double[] {0.62, 0.24}));
+                new BeaconEvent(plugin, id(), new double[] {0.86, 0.36}),
+                new SpreadCheckEvent(plugin, id(), new double[] {0.62, 0.30}));
     }
 
     @Override
@@ -214,25 +170,26 @@ public final class GraftedHorror extends Boss {
         Location loc = instance.entity().getLocation();
         EntityEquipment equipment = instance.entity().getEquipment();
         if (equipment != null) {
-            equipment.setItemInOffHand(new ItemStack(Material.COBWEB));
+            equipment.setItemInMainHand(new ItemStack(Material.REDSTONE));
+            equipment.setItemInOffHand(new ItemStack(Material.REPEATER));
         }
-        // The first graft twitches to life — a spider's limbs bolted onto rotting flesh.
+        // Something switches on inside it: sparks jump the seams and the first two lines light up.
         Fx.coloredBurst(loc.clone().add(0, 1.2, 0), SICKLY_GREEN, 1.6f, 34, 0.6);
-        Fx.point(loc.clone().add(0, 1, 0), Particle.ITEM_COBWEB, 12);
+        Fx.burst(loc.clone().add(0, 1, 0), Particle.ELECTRIC_SPARK, 24, 0.5);
         Fx.sound(loc, Sound.ENTITY_ZOMBIE_AMBIENT, 1.0f, 0.6f);
-        Fx.sound(loc, Sound.ENTITY_SPIDER_AMBIENT, 0.9f, 0.8f);
+        Fx.sound(loc, Sound.BLOCK_LEVER_CLICK, 1.2f, 0.5f);
     }
 
     private static void onEnterPhase2(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Marrow ignition: fire licks up through the seams where the blaze graft took hold.
-        Fx.coloredBurst(loc.clone().add(0, 1.2, 0), EMBER, 1.8f, 40, 0.7);
-        Fx.burst(loc.clone().add(0, 1, 0), Particle.FLAME, 30, 0.6);
-        Fx.expandingRings(instance.plugin(), loc, Particle.FLAME, 6.0, 3, 2L);
-        Fx.sound(loc, Sound.ENTITY_BLAZE_AMBIENT, 1.1f, 0.7f);
+        // A third module bolts itself on, and this one is watching.
+        Fx.coloredBurst(loc.clone().add(0, 1.2, 0), SPARK_RED, 1.8f, 40, 0.7);
+        Fx.burst(loc.clone().add(0, 1, 0), Particle.ELECTRIC_SPARK, 30, 0.6);
+        Fx.expandingRings(instance.plugin(), loc, Particle.SMOKE, 6.0, 3, 2L);
+        Fx.sound(loc, Sound.BLOCK_DISPENSER_FAIL, 1.1f, 0.7f);
         instance.showTitle(
-                Component.text("Marrow Ignition", NamedTextColor.GOLD).decoration(TextDecoration.BOLD, true),
-                Component.text("Fire wakes in its stolen bones", NamedTextColor.GRAY));
+                Component.text("Observer Graft", NamedTextColor.RED).decoration(TextDecoration.BOLD, true),
+                Component.text("Don't move in front of it — come at it from behind", NamedTextColor.GRAY));
     }
 
     private static void onEnterPhase3(BossInstance instance) {
@@ -246,26 +203,26 @@ public final class GraftedHorror extends Boss {
             }
             equipment.setHelmet(skull);
         }
-        // Wither sinew: a donated skull settles onto its shoulders, brittle and rattling.
-        Fx.coloredBurst(loc.clone().add(0, 1.2, 0), DECAY_GREY, 2.0f, 34, 0.8);
+        // The busiest module yet drops into its socket and starts pulling severed lines back together.
+        Fx.coloredBurst(loc.clone().add(0, 1.2, 0), RUST, 2.0f, 34, 0.8);
         Fx.point(loc.clone().add(0, 1.4, 0), Particle.SMOKE, 20);
-        Fx.sound(loc, Sound.ENTITY_WITHER_AMBIENT, 1.0f, 0.6f);
+        Fx.sound(loc, Sound.BLOCK_ANVIL_USE, 1.0f, 0.6f);
         instance.showTitle(
-                Component.text("Wither Sinew", NamedTextColor.DARK_GRAY).decoration(TextDecoration.BOLD, true),
-                Component.text("A donor's skull settles onto its shoulders", NamedTextColor.GRAY));
+                Component.text("Self-Repair", NamedTextColor.DARK_GRAY).decoration(TextDecoration.BOLD, true),
+                Component.text("Cut the repair line first — then three at once", NamedTextColor.GRAY));
     }
 
     private static void onEnterEnrage(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Full metamorphosis: every seam splits at once as the last graft — a warp-eyed thing — takes hold.
-        Fx.burst(loc.clone().add(0, 1, 0), Particle.PORTAL, 50, 0.8);
-        Fx.coloredRing(loc, Color.fromRGB(180, 20, 20), 1.8f, 4.5, 26, 0);
-        Fx.expandingRings(instance.plugin(), loc, Particle.SOUL_FIRE_FLAME, 7.0, 4, 2L);
-        Fx.sound(loc, Sound.ENTITY_ENDERMAN_SCREAM, 1.2f, 0.6f);
+        // Every seam splits at once and the grafts drop off it, still firing.
+        Fx.burst(loc.clone().add(0, 1, 0), Particle.LARGE_SMOKE, 50, 0.8);
+        Fx.coloredRing(loc, DECAY_GREY, 1.8f, 4.5, 26, 0);
+        Fx.expandingRings(instance.plugin(), loc, Particle.ELECTRIC_SPARK, 7.0, 4, 2L);
+        Fx.sound(loc, Sound.BLOCK_PISTON_EXTEND, 1.4f, 0.4f);
         Fx.sound(loc, Sound.ENTITY_WITHER_SPAWN, 1.0f, 0.8f);
         instance.showTitle(
-                Component.text("⚚ FULL METAMORPHOSIS ⚚", NamedTextColor.DARK_RED).decoration(TextDecoration.BOLD, true),
-                Component.text("Every graft it ever stole answers at once", NamedTextColor.GRAY));
+                Component.text("⚚ SEAMS OPEN ⚚", NamedTextColor.DARK_RED).decoration(TextDecoration.BOLD, true),
+                Component.text("Every module you left running is a turret now", NamedTextColor.GRAY));
     }
 
     private static ItemStack graftedHide(Material material) {

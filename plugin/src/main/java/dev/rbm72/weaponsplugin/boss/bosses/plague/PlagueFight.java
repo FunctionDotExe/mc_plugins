@@ -172,6 +172,7 @@ final class PlagueFight {
         try {
             carriers.discard();
             host.discard();
+            sporeNodes.discard();
         } catch (Exception e) {
             plugin.getLogger().log(Level.SEVERE,
                     "Plague Warden fight teardown threw — the arena ledger still restores its terrain.", e);

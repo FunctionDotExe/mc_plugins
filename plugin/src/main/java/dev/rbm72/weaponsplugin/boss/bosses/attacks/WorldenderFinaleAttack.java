@@ -112,7 +112,7 @@ public final class WorldenderFinaleAttack extends BossAttack {
                 if (ticks % waveIntervalTicks == 0) {
                     // Damage aura to everyone still in the arena.
                     for (Player player : ctx.arena().playersInside()) {
-                        player.damage(auraDamage, ctx.boss());
+                        tickHurt(ctx, player, auraDamage);
                         Fx.coloredBurst(player.getLocation().add(0, 1, 0), UNMAKING, 2.0f, 24, 0.6);
                         Fx.flash(player.getLocation().add(0, 1, 0), 2);
                         Fx.bloodSpray(player.getLocation().add(0, 1, 0));

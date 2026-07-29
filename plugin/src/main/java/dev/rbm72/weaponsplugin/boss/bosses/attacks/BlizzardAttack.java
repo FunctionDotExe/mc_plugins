@@ -4,6 +4,7 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.AttackContext;
 import dev.rbm72.weaponsplugin.boss.BossAttack;
 import dev.rbm72.weaponsplugin.boss.BossAudio;
+import dev.rbm72.weaponsplugin.boss.TickDamage;
 import dev.rbm72.weaponsplugin.boss.telegraph.Telegraph;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import org.bukkit.Color;
@@ -17,17 +18,28 @@ import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
 /**
  * A rotating wall of freezing wind sweeps around the queen — a spinning-laser hazard, not a flat
  * arena-wide tick. Previously this hit every player in the arena every second no matter where they
  * stood, which was a pure DPS race with no positioning decision at all. Now only the narrow sweeping
  * sector deals damage; reading its rotation and staying out of its path avoids it entirely.
+ * <p>
+ * The sector damage is a tick, not a hit, so it goes through {@link TickDamage}. It used to be a plain
+ * {@code player.damage} on a 1-tick timer: vanilla i-frames throttled the health loss to roughly twice
+ * a second, but every landed hit still rolled the camera and re-applied knockback for the whole
+ * 140-tick sweep, which is the "my screen is tilting and my movement keeps getting eaten" report. The
+ * explicit per-player cooldown below reproduces the old effective rate without any of that.
  */
 public final class BlizzardAttack extends BossAttack {
 
     private static final Color FROST = Color.fromRGB(210, 240, 255);
 
     private final double damagePerHit;
+    private final int damageIntervalTicks;
     private final int slowAmplifier;
     private final double sectorWidthDegrees;
     private final double revolutions;
@@ -37,6 +49,7 @@ public final class BlizzardAttack extends BossAttack {
     public BlizzardAttack(WeaponsPlugin plugin) {
         super(plugin, "frost_queen");
         this.damagePerHit = configDouble("blizzard-damage-per-hit", 3.0);
+        this.damageIntervalTicks = configInt("blizzard-damage-interval-ticks", 10);
         this.slowAmplifier = configInt("blizzard-slow-amplifier", 1);
         this.sectorWidthDegrees = configDouble("blizzard-sector-width-degrees", 40.0);
         this.revolutions = configDouble("blizzard-revolutions", 2.5);
@@ -68,6 +81,11 @@ public final class BlizzardAttack extends BossAttack {
                     Fx.sound(origin, Sound.WEATHER_RAIN, 1.3f, 0.6f);
                     Location center = ctx.arena().center();
                     double sweepPerTick = (revolutions * 2 * Math.PI) / durationTicks;
+                    // Per-cast, per-player hit cooldown. The sector check still runs every tick, so the
+                    // sweep clipping you for six ticks lands exactly one hit rather than six; the cooldown
+                    // is what the vanilla i-frames used to be doing implicitly, made explicit because
+                    // TickDamage does not set them.
+                    Map<UUID, Integer> lastHitTick = new HashMap<>();
                     new BukkitRunnable() {
                         int ticks = 0;
                         double angle = 0;
@@ -104,12 +122,19 @@ public final class BlizzardAttack extends BossAttack {
                                 }
                                 double playerAngle = Math.atan2(toPlayer.getZ(), toPlayer.getX());
                                 double diff = Math.abs(normalizeAngle(playerAngle - angle));
-                                if (Math.toDegrees(diff) <= sectorWidthDegrees / 2.0) {
-                                    player.damage(damagePerHit, ctx.boss());
-                                    player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 20, slowAmplifier));
-                                    Fx.coloredBurst(player.getLocation().add(0, 1, 0), FROST, 1.4f, 10, 0.3);
-                                    Fx.sound(player.getLocation(), Sound.BLOCK_GLASS_BREAK, 0.6f, 1.3f);
+                                if (Math.toDegrees(diff) > sectorWidthDegrees / 2.0) {
+                                    continue;
                                 }
+                                Integer last = lastHitTick.get(player.getUniqueId());
+                                if (last != null && ticks - last < damageIntervalTicks) {
+                                    continue;
+                                }
+                                lastHitTick.put(player.getUniqueId(), ticks);
+                                TickDamage.apply(ctx.instance(), player, damagePerHit);
+                                player.addPotionEffect(new PotionEffect(
+                                        PotionEffectType.SLOWNESS, damageIntervalTicks + 10, slowAmplifier));
+                                Fx.coloredBurst(player.getLocation().add(0, 1, 0), FROST, 1.4f, 10, 0.3);
+                                Fx.sound(player.getLocation(), Sound.BLOCK_GLASS_BREAK, 0.6f, 1.3f);
                             }
                             angle += sweepPerTick;
                             ticks++;

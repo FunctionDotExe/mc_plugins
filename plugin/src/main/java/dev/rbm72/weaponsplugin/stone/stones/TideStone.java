@@ -42,14 +42,19 @@ public final class TideStone extends Stone {
     @Override
     public List<Component> description() {
         return List.of(
-                Component.text("Permanent Dolphin's Grace II", NamedTextColor.AQUA),
+                Component.text("Permanent Dolphin's Grace " + roman(graceAmplifier()), NamedTextColor.AQUA),
                 Component.text("& Water Breathing while", NamedTextColor.GRAY),
                 Component.text("equipped.", NamedTextColor.GRAY));
     }
 
+    private int graceAmplifier() {
+        return Math.max(0, configInt("grace-amplifier", 1));
+    }
+
     @Override
     public void onEquipTick(Player player) {
-        player.addPotionEffect(new PotionEffect(PotionEffectType.DOLPHINS_GRACE, 30, 1, true, false, false));
+        // Refreshed twice a second (the tick cadence); 30 ticks outlasts the gap so it never flickers off.
+        player.addPotionEffect(new PotionEffect(PotionEffectType.DOLPHINS_GRACE, 30, graceAmplifier(), true, false, false));
         player.addPotionEffect(new PotionEffect(PotionEffectType.WATER_BREATHING, 30, 0, true, false, false));
     }
 }

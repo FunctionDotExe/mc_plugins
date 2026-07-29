@@ -7,17 +7,10 @@ import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
 import dev.rbm72.weaponsplugin.boss.events.BeaconEvent;
 import dev.rbm72.weaponsplugin.boss.events.ConvergenceNukeEvent;
-import dev.rbm72.weaponsplugin.boss.mechanics.GazeMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.OrderedTargetsMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.SilenceWardMechanic;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.ChoirWailAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.FangLineAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.GrandIllusionAttack;
+import dev.rbm72.weaponsplugin.boss.bosses.choir.ChoirPhases;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.SpectralHoundsAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.VexSwarmAttack;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.weapons.Mournsong;
 import net.kyori.adventure.text.Component;
@@ -37,9 +30,19 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * The Hollow Choir — an evoker who sang so many souls into service that it forgot which voice was
- * its own. Every phase it channels a different memory of something that used to hunt: fanged
- * illusions, a flickering wraith swarm, a pack of spectral hounds, then all of them at once.
+ * The Hollow Choir — a machine of note blocks, bells and sculk sensors still playing a song nobody
+ * remembers writing. It does not see you. It <b>hears</b> you, and you can lie to it: the roster's
+ * <b>active sound misdirection</b> boss (batch-3 spec §4). Make noise where you are not, then attack from
+ * the quiet side — and because fighting is loud, damage and safety are directly opposed at all times.
+ * <ol>
+ *   <li><b>The Listening</b> — strike a note block, watch the attack land there instead of on you.</li>
+ *   <li><b>The Dark</b> — Darkness in waves; audio is the only channel left.</li>
+ *   <li><b>The Round</b> — it sings three notes and the group plays them back, in the dark, while hunted
+ *       by copies of it that make no sound.</li>
+ *   <li><b>All Voices</b> — everything is loud, misdirection dies, and it hunts the nearest body.</li>
+ * </ol>
+ * Where the Plague Warden's sculk demands silence, this boss demands the opposite and <em>never</em>
+ * punishes sprinting — batch 3 §0's deconfliction rule, enforced in {@code choir.Noise}.
  */
 public final class HollowChoir extends Boss {
 
@@ -51,36 +54,32 @@ public final class HollowChoir extends Boss {
     public HollowChoir(WeaponsPlugin plugin) {
         super(plugin);
 
-        FangLineAttack fangLine = new FangLineAttack(plugin);
-        VexSwarmAttack vexSwarm = new VexSwarmAttack(plugin);
+        // Its wail, its fangs, its vexes and its illusions are all fired by the noise model now — they
+        // have to resolve at a heard <em>location</em> rather than at a target, which is exactly what a
+        // BossAttack cannot express. What is left in the pool is the one thing that genuinely hunts.
         SpectralHoundsAttack spectralHounds = new SpectralHoundsAttack(plugin);
-        ChoirWailAttack choirWail = new ChoirWailAttack(plugin);
-        GrandIllusionAttack grandIllusion = new GrandIllusionAttack(plugin);
 
         this.phases = List.of(
-                // Silence Ward: a cantor plants a bubble where every strike lands soft. Kill it, fight
-                // from outside it, or accept smothered damage — three real answers, none of them a wall.
-                new BossPhase("The First Voice", 1.0,
-                        List.of(fangLine, vexSwarm),
+                // The Listening: sensors, note blocks, and the rule that noise draws attacks.
+                new BossPhase("The Listening", 1.0,
+                        List.of(spectralHounds),
                         false, HollowChoir::onEnterPhase1,
-                        this::silenceWard),
-                // Ungated: no mechanic, just the choir and its hounds. Pure race.
-                new BossPhase("The Hunting Memory", 0.75,
-                        List.of(fangLine, vexSwarm, spectralHounds),
-                        false, HollowChoir::onEnterPhase2),
-                // Discordant Verse: its signature, and the only mechanic in the game that reads your
-                // camera. Whoever is looking at a head when it sings eats the verse — so the group has
-                // to give up sight of the fight, repeatedly, and keep fighting anyway.
-                new BossPhase("The Dissonant Choir", 0.40,
-                        List.of(fangLine, vexSwarm, spectralHounds, choirWail),
+                        instance -> ChoirPhases.listening(instance, 0.75)),
+                // The Dark: vision goes, and the group needs an audio protocol.
+                new BossPhase("The Dark", 0.75,
+                        List.of(spectralHounds),
+                        false, HollowChoir::onEnterPhase2,
+                        instance -> ChoirPhases.theDark(instance, 0.50)),
+                // The Round: call-and-response, in the dark, among copies that make no sound.
+                new BossPhase("The Round", 0.50,
+                        List.of(spectralHounds),
                         false, HollowChoir::onEnterPhase3,
-                        this::discordantVerse),
-                // Vex Round: shield shards that must die in the order the chimes call. The one phase
-                // where the wrong swing is worse than no swing at all.
-                new BossPhase("Full Requiem", 0.15,
-                        List.of(fangLine, vexSwarm, spectralHounds, choirWail, grandIllusion),
+                        instance -> ChoirPhases.theRound(instance, 0.24)),
+                // All Voices: the tools are removed and it comes at whoever is closest.
+                new BossPhase("All Voices", 0.24,
+                        List.of(spectralHounds),
                         true, HollowChoir::onEnterEnrage,
-                        this::vexRound));
+                        ChoirPhases::allVoices));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Mournsong(plugin).createItem())
@@ -117,61 +116,22 @@ public final class HollowChoir extends Boss {
     }
 
     /**
-     * Silence Ward: a cantor holds a bubble in which every strike lands soft. It usually sits on the
-     * choir itself, so the group is choosing between walking over to silence the cantor, backing out
-     * to full-strength range, or eating the penalty — a standing decision, never a lockout.
+     * Four times the roster default. Misdirection, a Darkness cycle and a call-and-response phrase are
+     * all things a group can be doing well for a long stretch without the boss's health moving, and
+     * {@code ChoirPhaseMechanic#progressSignal} counts every misdirection and every phrase so that
+     * patience never reads as a stalled fight.
      */
-    private PhaseMechanic silenceWard(BossInstance instance) {
-        return new SilenceWardMechanic(instance, "Silence Ward", PALE_VIOLET, Material.AMETHYST_CLUSTER,
-                "Cantor", EntityType.EVOKER,
-                configDouble("silence-cantor-health", 45.0),
-                configDouble("silence-ward-radius", 10.0),
-                configDouble("silence-smothered-multiplier", 0.3),
-                configInt("silence-respawn-delay-ticks", 160),
-                configDouble("silence-placement-fraction", 0.45));
+    @Override
+    public int phaseFloorTimeoutMs() {
+        return configInt("phase-floor-timeout-ms", 180_000);
     }
 
-    /**
-     * Discordant Verse: its signature. Heads take turns singing, each with a loud wind-up, and whoever
-     * is facing the singer when it lands takes the whole verse. Turning away is always enough and
-     * always costs you sight of everything else happening.
-     */
-    private PhaseMechanic discordantVerse(BossInstance instance) {
-        return new GazeMechanic(instance, "Discordant Verse", PALE_VIOLET, Material.SCULK_SHRIEKER,
-                configInt("verse-head-count", 4),
-                configInt("verse-charge-ticks", 60),
-                configInt("verse-sing-ticks", 12),
-                configInt("verse-rest-ticks", 50),
-                configDouble("verse-damage", 20.0),
-                configDouble("verse-range", 26.0),
-                configDouble("verse-placement-fraction", 0.6));
-    }
-
-    /**
-     * Vex Round: shards lit in a cued order, and a wrong strike throws the whole sequence away and
-     * costs the group health. Blunted rather than immune while the round stands, so it can never lock.
-     */
-    private PhaseMechanic vexRound(BossInstance instance) {
-        return new OrderedTargetsMechanic(instance, "Vex Round", "Shield Shard", PALE_VIOLET,
-                Material.AMETHYST_SHARD,
-                configInt("vex-round-count", 4),
-                configDouble("vex-round-health", 28.0),
-                configInt("vex-round-window-ticks", 300),
-                configInt("vex-round-restart-delay-ticks", 110),
-                configDouble("vex-round-wrong-order-damage", 11.0),
-                configDouble("vex-round-timeout-damage", 26.0),
-                configDouble("vex-round-exposed-multiplier", 2.2),
-                configInt("vex-round-exposed-ticks", 160),
-                configInt("vex-round-stagger-ticks", 55),
-                configDouble("vex-round-placement-fraction", 0.55));
-    }
-
-    /** Offset from its phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    /** Offset from its phase boundaries (0.75 / 0.50 / 0.24) so they land mid-phase, not on transitions. */
     @Override
     public List<BossEvent> events() {
         return List.of(
-                new BeaconEvent(plugin, id(), new double[] {0.86, 0.30}),
-                new ConvergenceNukeEvent(plugin, id(), new double[] {0.60, 0.24},
+                new BeaconEvent(plugin, id(), new double[] {0.86, 0.36}),
+                new ConvergenceNukeEvent(plugin, id(), new double[] {0.62, 0.30},
                         "FULL CHORUS", "Every voice at once — get out of its reach"));
     }
 
@@ -214,8 +174,8 @@ public final class HollowChoir extends Boss {
         Fx.expandingRings(instance.plugin(), loc, Particle.SOUL, 6.0, 3, 2L);
         Fx.sound(loc, Sound.ENTITY_EVOKER_PREPARE_SUMMON, 1.1f, 0.8f);
         instance.showTitle(
-                Component.text("The Hunting Memory", NamedTextColor.LIGHT_PURPLE).decoration(TextDecoration.BOLD, true),
-                Component.text("Something that used to hunt stirs in its voice", NamedTextColor.GRAY));
+                Component.text("The Dark", NamedTextColor.LIGHT_PURPLE).decoration(TextDecoration.BOLD, true),
+                Component.text("Your eyes are no use here — keep making noise", NamedTextColor.GRAY));
     }
 
     private static void onEnterPhase3(BossInstance instance) {
@@ -224,8 +184,8 @@ public final class HollowChoir extends Boss {
         Fx.point(loc.clone().add(0, 1.6, 0), Particle.SOUL, 24);
         Fx.sound(loc, Sound.ENTITY_ILLUSIONER_AMBIENT, 1.0f, 0.7f);
         instance.showTitle(
-                Component.text("The Dissonant Choir", NamedTextColor.DARK_PURPLE).decoration(TextDecoration.BOLD, true),
-                Component.text("Every stolen voice sings out of tune together", NamedTextColor.GRAY));
+                Component.text("The Round", NamedTextColor.DARK_PURPLE).decoration(TextDecoration.BOLD, true),
+                Component.text("It is singing — play the same three notes back", NamedTextColor.GRAY));
     }
 
     private static void onEnterEnrage(BossInstance instance) {
@@ -235,7 +195,7 @@ public final class HollowChoir extends Boss {
         Fx.expandingRings(instance.plugin(), loc, Particle.WITCH, 7.5, 4, 2L);
         Fx.sound(loc, Sound.ENTITY_ILLUSIONER_CAST_SPELL, 1.4f, 0.5f);
         instance.showTitle(
-                Component.text("♫ FULL REQUIEM ♫", NamedTextColor.RED).decoration(TextDecoration.BOLD, true),
+                Component.text("♫ ALL VOICES ♫", NamedTextColor.RED).decoration(TextDecoration.BOLD, true),
                 Component.text("Every voice it ever stole sings at once", NamedTextColor.GRAY));
     }
 

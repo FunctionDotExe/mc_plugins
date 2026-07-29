@@ -23,7 +23,12 @@ public final class BossReloadCommand implements CommandExecutor {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         plugin.reloadConfig();
-        sender.sendMessage(Component.text("config.yml reloaded — boss/weapon tuning updated.", NamedTextColor.GREEN));
+        // Must follow every reload: reloadConfig() re-reads config.yml from disk, which discards the
+        // per-boss overlay applied at startup. Without this, the first /bossreload would silently revert
+        // every boss to its config.yml values and make the split files look like they do nothing.
+        dev.rbm72.weaponsplugin.boss.config.BossConfigFiles.apply(plugin);
+        sender.sendMessage(Component.text("Reloaded config.yml and bosses/*.yml — boss/weapon tuning updated.",
+                NamedTextColor.GREEN));
         return true;
     }
 }

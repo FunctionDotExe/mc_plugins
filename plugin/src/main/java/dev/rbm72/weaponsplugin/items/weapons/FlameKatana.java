@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
@@ -12,6 +13,7 @@ import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
@@ -21,23 +23,26 @@ import org.bukkit.util.Vector;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Dashes through enemies, igniting whatever it hits, and leaves a scorched
- * trail behind that keeps burning anyone who walks through it for a few
- * seconds — the fire is entirely code-driven damage ticks, never real fire
- * blocks, so it can't spread or grief terrain.
+ * Dashes through enemies, igniting whatever it hits, and leaves a burning trail of real fire behind it.
+ * <p>
+ * Reworked per batch-1 §0.1 — see {@link #igniteTrail} for what the old "scorched trail" actually was and
+ * why real {@link Material#FIRE} replaces it rather than decorating it.
  */
 public final class FlameKatana extends Weapon {
+
+    /** How much of the trail nearest the wielder's landing spot is left unlit, in blocks. */
+    private static final double SELF_CLEARANCE = 2.0;
 
     private final double dashSpeed;
     private final double abilityDamage;
     private final double hitRadius;
     private final int dashTicks;
     private final int burnTicks;
-    private final double trailDamage;
     private final int trailDurationTicks;
 
     public FlameKatana(WeaponsPlugin plugin) {
@@ -47,7 +52,6 @@ public final class FlameKatana extends Weapon {
         this.hitRadius = configDouble("hit-radius", 1.6);
         this.dashTicks = configInt("dash-ticks", 10);
         this.burnTicks = configInt("burn-ticks", 60);
-        this.trailDamage = configDouble("trail-damage", 1.5);
         this.trailDurationTicks = configInt("trail-duration-ticks", 60);
     }
 
@@ -86,8 +90,8 @@ public final class FlameKatana extends Weapon {
         return List.of(
                 Component.text("Right-click: dash through enemies,", NamedTextColor.GRAY),
                 Component.text("burning everything you strike, and", NamedTextColor.GRAY),
-                Component.text("leave a scorched trail that keeps", NamedTextColor.GRAY),
-                Component.text("burning anyone who crosses it.", NamedTextColor.GRAY));
+                Component.text("leave real fire burning along the", NamedTextColor.GRAY),
+                Component.text("path until it burns out.", NamedTextColor.GRAY));
     }
 
     @Override
@@ -111,6 +115,23 @@ public final class FlameKatana extends Weapon {
     }
 
     @Override
+    public Map<CooldownManager.Slot, Double> damageProfile() {
+        // The trail's damage is vanilla's burn tick, not a number this weapon picks, so the slot is worth the
+        // pass-through alone — attributing the fire's damage here would double-count it.
+        return Map.of(CooldownManager.Slot.ABILITY1, abilityDamage);
+    }
+
+    /**
+     * <b>Counterplay.</b> Real fire on the floor is the answer to floors that have been taken away: a fire
+     * block replaces the ice, powder snow or magma a boss laid down for as long as it burns, so the dash is
+     * both an escape and a way to give the group somewhere to stand.
+     */
+    @Override
+    public Set<CounterVerb> counterVerbs() {
+        return Set.of(CounterVerb.FOOTING);
+    }
+
+    @Override
     public void ability1(Player player) {
         Vector direction = player.getLocation().getDirection().normalize();
         player.setVelocity(direction.clone().multiply(dashSpeed).setY(0.25));
@@ -126,7 +147,7 @@ public final class FlameKatana extends Weapon {
             public void run() {
                 if (!player.isOnline() || ticks >= dashTicks) {
                     cancel();
-                    igniteTrail(trailPoints);
+                    igniteTrail(player, trailPoints);
                     return;
                 }
 
@@ -164,37 +185,51 @@ public final class FlameKatana extends Weapon {
         }.runTaskTimer(plugin, 0L, 1L);
     }
 
-    private void igniteTrail(List<Location> trailPoints) {
+    /**
+     * Lays real fire along the path the dash took.
+     * <p>
+     * The old version of this was the §0.1 anti-pattern with a comment defending itself: it drew
+     * {@code Particle.SMALL_FLAME} at each trail point and ran a {@code damage()} loop over anything within a
+     * metre of them, on a 10-tick timer, and the class javadoc called that "entirely code-driven damage
+     * ticks, never real fire blocks" as though it were the safe choice. What it produced was a corridor of
+     * invisible damage: fire you cannot see the edge of, that does not light what walks into it, that is not
+     * blocked by standing on a different block, and that vanishes if the particle call is deleted.
+     * <p>
+     * It is real {@link Material#FIRE} now, through {@link dev.rbm72.weaponsplugin.items.kit.TempTerrain},
+     * which holds a revert for every block and puts it back after {@code trail-duration-ticks}. The half the
+     * old comment was right to worry about — fire spreading out of the trail into someone's build, which the
+     * ledger has no revert for because it never wrote those blocks — is handled where it belongs, in
+     * {@code WeaponPropListener}, which refuses spread and burn out of any block the ledger is holding. So the
+     * trail griefs nothing while being a thing players can see, path around, and be driven into. Burning is
+     * vanilla's, from the block. No damage loop.
+     */
+    private void igniteTrail(Player caster, List<Location> trailPoints) {
         if (trailPoints.isEmpty()) {
             return;
         }
-        double effectiveTrailDamage = trailDamage * rarity().statMultiplier();
-        int interval = 10;
 
-        new BukkitRunnable() {
-            int elapsed = 0;
-
-            @Override
-            public void run() {
-                if (elapsed >= trailDurationTicks) {
-                    cancel();
-                    return;
-                }
-                for (Location point : trailPoints) {
-                    World world = point.getWorld();
-                    if (world == null) {
-                        continue;
-                    }
-                    Fx.point(point, Particle.SMALL_FLAME, 6);
-                    for (Entity nearby : world.getNearbyEntities(point, 1.0, 1.0, 1.0)) {
-                        if (nearby instanceof LivingEntity entity) {
-                            entity.damage(effectiveTrailDamage);
-                            entity.setFireTicks(20);
-                        }
-                    }
-                }
-                elapsed += interval;
+        Location end = caster.getLocation();
+        for (Location point : trailPoints) {
+            World world = point.getWorld();
+            if (world == null) {
+                continue;
             }
-        }.runTaskTimer(plugin, 10L, interval);
+            // Not under the wielder's own feet. The trail is sampled from where they were, and the last samples
+            // are where they still are, so lighting all of them means every cast sets the caster on fire —
+            // which is how you find out the hard way that real fire is real.
+            if (point.distanceSquared(end) < SELF_CLEARANCE * SELF_CLEARANCE) {
+                continue;
+            }
+            // Fire only burns where it has something to sit on; the trail is sampled at chest height, so the
+            // block to light is the one at foot level, and only if the floor beneath it is solid.
+            Block floor = point.clone().subtract(0, 1, 0).getBlock();
+            Block target = floor.getRelative(0, 1, 0);
+            if (!floor.getType().isSolid() || !target.getType().isAir()) {
+                continue;
+            }
+            plugin.tempTerrain().place(caster, target, Material.FIRE, trailDurationTicks);
+            Fx.point(target.getLocation().add(0.5, 0.2, 0.5), Particle.SMALL_FLAME, 4);
+        }
+        Fx.sound(trailPoints.get(0), Sound.ITEM_FIRECHARGE_USE, 0.8f, 0.7f);
     }
 }

@@ -109,7 +109,7 @@ public final class UndertowAttack extends BossAttack {
                                 Vector drag = toEye.multiply(pull / dist);
                                 player.setVelocity(player.getVelocity().add(drag));
                                 if (player.getLocation().distanceSquared(eye) <= eyeSq) {
-                                    player.damage(eyeTickDamage, ctx.boss());
+                                    tickHurt(ctx, player, eyeTickDamage);
                                     Fx.coloredBurst(player.getLocation().add(0, 1, 0), EYE_RED, 1.2f, 8, 0.3);
                                 }
                             }

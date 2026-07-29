@@ -134,7 +134,7 @@ public final class BindingSigilsAttack extends BossAttack {
                                     Telegraph.dangerZone(sigil.location(), pulseRadius);
                                     for (Player player : ctx.arena().playersInside()) {
                                         if (player.getLocation().distanceSquared(sigil.location()) <= pulseRadius * pulseRadius) {
-                                            player.damage(poolDamagePerPulse, ctx.boss());
+                                            tickHurt(ctx, player, poolDamagePerPulse);
                                         }
                                     }
                                 }

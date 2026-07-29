@@ -100,7 +100,7 @@ public final class MaelstromAttack extends BossAttack {
                                 player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 40, slowAmplifier));
                                 player.setRemainingAir(player.getRemainingAir() - airDrainPerTick);
                                 if (ticks % 20 == 0) {
-                                    player.damage(damagePerSecond, ctx.boss());
+                                    tickHurt(ctx, player, damagePerSecond);
                                     Fx.bloodSpray(player.getLocation().add(0, 1, 0));
                                 }
                             }

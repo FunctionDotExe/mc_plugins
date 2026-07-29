@@ -1,11 +1,10 @@
 package dev.rbm72.weaponsplugin.boss.grief;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.util.BlockGuard;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
-import org.bukkit.block.TileState;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
@@ -104,7 +103,7 @@ public final class ArenaLedger {
         if (restoreStarted) {
             return false;
         }
-        if (block.getState() instanceof TileState) {
+        if (!BlockGuard.isRestorable(block)) {
             return false;
         }
         World blockWorld = block.getWorld();
@@ -157,6 +156,46 @@ public final class ArenaLedger {
      */
     public void recordExplosion(List<Block> blockList) {
         blockList.removeIf(block -> !record(block));
+    }
+
+    /**
+     * Puts back just the blocks this fight changed within {@code radius} of {@code centre}, and forgets
+     * them.
+     * <p>
+     * This is the counterplay primitive behind "pillar-break" and "footing-fix": a boss drop that answers
+     * an ice encasement, a stone pillar or a frozen floor does it by <em>undoing the boss's terrain</em>,
+     * not by breaking blocks. The distinction matters — breaking them would leave the ledger holding undo
+     * entries for positions that no longer contain what it wrote, so fight-end restore would then put the
+     * boss's ice back on top of whatever was there by the end. Removing the entry as we restore it is what
+     * keeps the two consistent.
+     * <p>
+     * Deliberately does nothing once the full restore has started: at that point the fight is over and the
+     * whole arena is coming back anyway.
+     *
+     * @return how many blocks were put back.
+     */
+    public int restoreNear(Location centre, double radius) {
+        if (!enabled || restoreStarted || centre == null || world == null
+                || !world.equals(centre.getWorld()) || originals.isEmpty()) {
+            return 0;
+        }
+        double radiusSq = radius * radius;
+        List<Long> hit = new ArrayList<>();
+        for (Long key : originals.keySet()) {
+            double dx = x(key) + 0.5 - centre.getX();
+            double dy = y(key) + 0.5 - centre.getY();
+            double dz = z(key) + 0.5 - centre.getZ();
+            if (dx * dx + dy * dy + dz * dz <= radiusSq) {
+                hit.add(key);
+            }
+        }
+        for (Long key : hit) {
+            BlockData original = originals.remove(key);
+            if (original != null) {
+                world.getBlockAt(x(key), y(key), z(key)).setBlockData(original, false);
+            }
+        }
+        return hit.size();
     }
 
     /**
@@ -265,12 +304,5 @@ public final class ArenaLedger {
 
     private static int y(long key) {
         return (int) (key & 0xFFFL) - 2048;
-    }
-
-    /** True for a block no boss should ever modify, restore or not. */
-    static boolean isProtected(Material type) {
-        return type == Material.BEDROCK || type == Material.BARRIER
-                || type == Material.END_PORTAL_FRAME || type == Material.COMMAND_BLOCK
-                || type == Material.STRUCTURE_BLOCK || type == Material.JIGSAW;
     }
 }

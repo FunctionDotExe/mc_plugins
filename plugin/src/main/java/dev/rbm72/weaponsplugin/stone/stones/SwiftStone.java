@@ -42,12 +42,17 @@ public final class SwiftStone extends Stone {
     @Override
     public List<Component> description() {
         return List.of(
-                Component.text("Permanent Speed II", NamedTextColor.GREEN),
+                Component.text("Permanent Speed " + roman(amplifier()), NamedTextColor.GREEN),
                 Component.text("while equipped.", NamedTextColor.GRAY));
+    }
+
+    private int amplifier() {
+        return Math.max(0, configInt("amplifier", 1));
     }
 
     @Override
     public void onEquipTick(Player player) {
-        player.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, 30, 1, true, false, false));
+        // Refreshed twice a second (the tick cadence); 30 ticks outlasts the gap so it never flickers off.
+        player.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, 30, amplifier(), true, false, false));
     }
 }

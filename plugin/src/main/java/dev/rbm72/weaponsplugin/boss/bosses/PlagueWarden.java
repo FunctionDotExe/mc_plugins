@@ -143,6 +143,17 @@ public final class PlagueWarden extends Boss {
         return lootTable;
     }
 
+    /**
+     * Four times the roster default, same reasoning as the Fallen King: cleansing the group under half
+     * Infection, destroying Spore Nodes, and breaking the Host open are physical acts under pressure
+     * rather than a burst window, and {@code PlaguePhaseMechanic#progressSignal} resets the clock on
+     * every one of them (including partial Host damage — see {@code HostPhase#progressSignal}).
+     */
+    @Override
+    public int phaseFloorTimeoutMs() {
+        return configInt("phase-floor-timeout-ms", 180_000);
+    }
+
     /** Offset from his phase boundaries (0.70 / 0.45 / 0.20) so they land mid-phase, not on transitions. */
     @Override
     public List<BossEvent> events() {

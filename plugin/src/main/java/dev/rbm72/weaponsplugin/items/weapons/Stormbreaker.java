@@ -1,9 +1,11 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.items.kit.Props;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Color;
@@ -23,8 +25,10 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Dashes through enemies. Every hit also arcs a chain of lightning to one
- * nearby enemy, so hitting a cluster deals more than the sum of its parts.
+ * Dashes through enemies. Every hit also arcs a real lightning bolt to one nearby enemy, so hitting a cluster
+ * deals more than the sum of its parts.
+ * <p>
+ * Reworked per batch-1 §0.1 — see {@link #chainLightning} for what the chain used to be made of.
  */
 public final class Stormbreaker extends Weapon {
 
@@ -106,6 +110,13 @@ public final class Stormbreaker extends Weapon {
     }
 
     @Override
+    public java.util.Map<CooldownManager.Slot, Double> damageProfile() {
+        // Pass-through plus one chain arc at its fraction: the bolt's own vanilla damage is left out because
+        // it is a fixed number the weapon does not set and cannot scale.
+        return java.util.Map.of(CooldownManager.Slot.ABILITY1, abilityDamage * (1 + chainDamageFraction));
+    }
+
+    @Override
     public void ability1(Player player) {
         Vector direction = player.getLocation().getDirection().normalize();
         player.setVelocity(direction.clone().multiply(dashSpeed).setY(0.25));
@@ -184,16 +195,19 @@ public final class Stormbreaker extends Weapon {
         }
 
         alreadyHit.add(target.getUniqueId());
-        // Two parallel strands offset in height give the chain-lightning arc actual
-        // thickness instead of reading as a single thin line of dots.
-        Fx.line(from.getLocation().add(0, 1, 0), target.getLocation().add(0, 1, 0), Particle.ELECTRIC_SPARK, 18);
-        Fx.line(from.getLocation().add(0, 1.3, 0), target.getLocation().add(0, 1.3, 0), Particle.ELECTRIC_SPARK, 14);
+
+        // The arc was two Fx.line strands of ELECTRIC_SPARK plus strikeLightningEffect — the *cosmetic*
+        // lightning call, a flash and a thunderclap with no bolt behind it — with the whole hit supplied by
+        // the damage() line underneath. Deleting all three left a working ability, which is the §0.1 test
+        // failed. This drops a real bolt on the target instead: it damages on its own, it converts what
+        // vanilla converts (pig to zombified piglin, villager to witch), it charges a creeper, and a
+        // lightning rod or a channeling trident interacts with it. Fire is off inside the spawn consumer, so
+        // the one thing a real bolt would otherwise do to the world is the one thing it does not.
+        Props.lightning(plugin, this, player, target.getLocation());
+        // Kept on top of the bolt's own damage because this is a *chain* — the fraction is what makes hitting
+        // a cluster scale, and the bolt alone is a flat number that ignores the weapon's rarity.
         target.damage(baseDamage * chainDamageFraction, player);
-        Fx.point(target.getLocation().add(0, 1, 0), Particle.ELECTRIC_SPARK, 20);
         Fx.coloredBurst(target.getLocation().add(0, 1, 0), STORM_COLOR, 1.5f, 18, 0.4);
-        if (target.getWorld() != null) {
-            target.getWorld().strikeLightningEffect(target.getLocation());
-        }
         Fx.bloodSpray(target.getLocation().add(0, 1.2, 0));
         Fx.sound(target.getLocation(), Sound.ENTITY_CREEPER_HURT, 0.8f, 1.6f);
     }

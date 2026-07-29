@@ -1,9 +1,11 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.items.kit.Props;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Color;
@@ -23,9 +25,15 @@ import org.bukkit.util.Vector;
 import java.util.List;
 
 /**
- * Lightning bruiser maul: a shockwave thunderclap, a called-down bolt at the
- * aim point, a launching gust dash, and a storm summoned around the wielder.
- * Every melee hit forks a spark to a second nearby enemy.
+ * Lightning bruiser maul: a shockwave thunderclap, a called-down bolt at the aim point, a launching gust dash,
+ * and a storm summoned around the wielder. Every melee hit forks a spark to a second nearby enemy.
+ * <p>
+ * Reworked per batch-1 §0.1. Three of the four abilities were the same mistake in different colours: every
+ * "bolt" in the file was {@code strikeLightningEffect}, which is the cosmetic call — a flash and a thunderclap
+ * with no entity behind it — and the gust was a bare {@code setVelocity} behind a puff of
+ * {@code Particle.CLOUD}. The lightning is real now ({@link Props#lightning}, with its ignition refused), and the gust is a real
+ * wind charge. What was left alone: the {@code ability2} bolt was already real, and the melee spark fork stays a
+ * particle line, because a bolt per melee swing would be a bolt every 0.6 seconds.
  */
 public final class TempestMaul extends Weapon {
 
@@ -34,6 +42,7 @@ public final class TempestMaul extends Weapon {
 
     private final double clapDamage;
     private final double clapRadius;
+    private final int clapStrikes;
     private final double callDamage;
     private final double callRadius;
     private final int callRange;
@@ -48,8 +57,12 @@ public final class TempestMaul extends Weapon {
 
     public TempestMaul(WeaponsPlugin plugin) {
         super(plugin);
-        this.clapDamage = configDouble("clap-damage", 9.0);
+        // Lowered from 9.0 with the doctrine pass: the clap's four strikes are real bolts now and each pays
+        // vanilla's own damage on whatever it lands on, so the hand-written slam damage had to give some back
+        // or the ability would quietly have gained a third of its output.
+        this.clapDamage = configDouble("clap-damage", 7.0);
         this.clapRadius = configDouble("clap-radius", 4.0);
+        this.clapStrikes = configInt("clap-strikes", 4);
         this.callDamage = configDouble("call-damage", 12.0);
         this.callRadius = configDouble("call-radius", 3.0);
         this.callRange = configInt("call-range", 30);
@@ -172,6 +185,17 @@ public final class TempestMaul extends Weapon {
     }
 
     @Override
+    public java.util.Map<CooldownManager.Slot, Double> damageProfile() {
+        return java.util.Map.of(
+                CooldownManager.Slot.ABILITY1, clapDamage,
+                CooldownManager.Slot.ABILITY2, callDamage,
+                // The gust deals none of its own; what it does is reposition.
+                CooldownManager.Slot.ABILITY3, 0.0,
+                // Every strike interval over the storm's duration, since a target held in it eats each one.
+                CooldownManager.Slot.ULTIMATE, tempestDamage * Math.max(1, tempestDurationTicks / Math.max(1, tempestStrikeInterval)));
+    }
+
+    @Override
     public void ability1(Player player) {
         Location loc = player.getLocation();
         World world = loc.getWorld();
@@ -180,12 +204,13 @@ public final class TempestMaul extends Weapon {
         }
         double damage = clapDamage * rarity().statMultiplier();
 
-        for (int i = 0; i < 4; i++) {
+        // Real bolts scattered around the slam, not flashes: each one is an entity that damages what it lands
+        // on and interacts with lightning rods, so the clap has a footprint the party can see and stand clear of.
+        for (int i = 0; i < clapStrikes; i++) {
             double angle = Math.random() * Math.PI * 2;
             double dist = Math.random() * clapRadius;
             Location strikePoint = loc.clone().add(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
-            world.strikeLightningEffect(strikePoint);
-            Fx.glowPillar(plugin, strikePoint, Material.LIGHT_BLUE_STAINED_GLASS, 0.3f, 4.0f, 10);
+            Props.lightning(plugin, this, player, strikePoint);
         }
         Fx.expandingRings(plugin, loc, Particle.ELECTRIC_SPARK, clapRadius * 1.3, 6, 3L);
         Fx.coloredBurst(loc.clone().add(0, 0.2, 0), STRIKE_COLOR, 2.2f, 36, 1.2);
@@ -215,7 +240,8 @@ public final class TempestMaul extends Weapon {
         Location strike = target != null
                 ? target.getLocation().add(0.5, 1, 0.5)
                 : player.getEyeLocation().add(player.getLocation().getDirection().multiply(callRange));
-        world.strikeLightning(strike);
+        // Already a real bolt; routed through Props only so it stops setting fire to whatever it is aimed at.
+        Props.lightning(plugin, this, player, strike);
         Fx.coloredBurst(strike.clone().add(0, 1, 0), STRIKE_COLOR, 2.0f, 30, callRadius * 0.4);
         Fx.point(strike.clone().add(0, 1, 0), Particle.EXPLOSION_EMITTER, 1);
         Fx.sound(player, castSound(), 1.0f, 0.9f);
@@ -229,12 +255,19 @@ public final class TempestMaul extends Weapon {
         }
     }
 
+    /**
+     * Gust — a real wind charge fired under the wielder's own feet.
+     * <p>
+     * Was a {@code setVelocity} with a cloud of particles around it, which is the §0.1 wind row's named example
+     * of the wrong answer. A wind charge shoves off the geometry it detonates against, so the launch is
+     * different in the open than it is against a wall, it lifts anything standing beside the wielder, and it
+     * composes with whatever else is writing their velocity this tick instead of overwriting it.
+     */
     @Override
     public void ability3(Player player) {
         Vector dir = player.getLocation().getDirection().normalize();
-        Vector velocity = dir.multiply(gustForward).setY(gustUp);
-        player.setVelocity(velocity);
-        Fx.burst(player.getLocation().add(0, 0.5, 0), Particle.CLOUD, 30, 0.5);
+        Props.windCharge(plugin, this, player, player.getLocation().clone().add(0, 0.1, 0),
+                dir.clone().multiply(gustForward * 0.25).setY(-gustUp));
         Fx.coloredBurst(player.getLocation().add(0, 0.5, 0), STORM_WHITE, 1.6f, 20, 0.5);
         Fx.sound(player, Sound.ITEM_ELYTRA_FLYING, 1.0f, 1.2f);
         Fx.sound(player, Sound.ENTITY_ENDER_DRAGON_FLAP, 1.0f, 1.0f);
@@ -262,7 +295,9 @@ public final class TempestMaul extends Weapon {
                     double angle = Math.random() * Math.PI * 2;
                     double dist = Math.random() * tempestRadius;
                     Location strike = loc.clone().add(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
-                    world.strikeLightningEffect(strike);
+                    // A real bolt per interval. The storm is now something that hits the ground around the
+                    // wielder on its own; the damage loop below is what ties it to the weapon's numbers.
+                    Props.lightning(plugin, TempestMaul.this, player, strike);
                     Fx.coloredBurst(strike.clone().add(0, 1, 0), STRIKE_COLOR, 1.8f, 20, 0.5);
                     Fx.sound(strike, hitSound(), 0.9f, 1.1f);
                     for (Entity nearby : world.getNearbyEntities(strike, 2.5, 2.5, 2.5)) {

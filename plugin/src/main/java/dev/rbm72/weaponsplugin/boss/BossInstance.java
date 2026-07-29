@@ -8,6 +8,8 @@ import dev.rbm72.weaponsplugin.boss.integration.DiscordNotifier;
 import dev.rbm72.weaponsplugin.boss.integration.WorldGuardArenaGuard;
 import dev.rbm72.weaponsplugin.boss.grief.ArenaLedger;
 import dev.rbm72.weaponsplugin.boss.meter.MeterRegistry;
+import dev.rbm72.weaponsplugin.boss.modifier.BossModifier;
+import dev.rbm72.weaponsplugin.boss.telemetry.FightRecord;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -47,7 +49,7 @@ import java.util.UUID;
 public final class BossInstance {
 
     public enum EndReason {
-        DEFEATED, DESPAWNED, PLUGIN_DISABLE
+        DEFEATED, DESPAWNED, PLUGIN_DISABLE, CLEARED
     }
 
     /** Enrage phase gets visibly bigger, faster, and louder — the "final form" every boss lacked. */
@@ -75,19 +77,30 @@ public final class BossInstance {
     private final Arena arena;
     private final double maxHealth;
 
-    private final AddManager addManager = new AddManager();
+    private final AddManager addManager;
     private final BossBarController barController = new BossBarController();
     private final MechanicBar mechanicBar = new MechanicBar();
     private final ArenaLedger ledger;
     private final MeterRegistry meters;
     private final ArenaBarrier arenaBarrier;
     private final BossAmbiance.Handle ambianceHandle;
+    private final BossMusic.Handle musicHandle;
     private final List<BukkitTask> tasks = new ArrayList<>();
     private final Map<BossAttack, Long> lastUsedAtMs = new HashMap<>();
     private final Set<UUID> griefEntities = new HashSet<>();
+    /** Wall-clock start of the fight — the clock behind fastest-clear records and every telemetry duration. */
+    private final long startedAtMs = System.currentTimeMillis();
+    /** Affixes armed when this fight started. Fixed for its lifetime — see {@link BossManager#spawn}. */
+    private final Set<BossModifier> affixes;
+    /** This fight's telemetry row. Never null; a disabled recorder simply never reaches disk. */
+    private final FightRecord telemetry;
+    private final double affixCooldownMultiplier;
+    private final double affixReflectFraction;
 
     private BossPhase currentPhase;
     private BossAttack lastAttack;
+    /** Name of the attack mid-sequence right now, or null between attacks. Read for death attribution. */
+    private String currentAttackName;
     private Player currentTarget;
     private boolean attackInProgress;
     private boolean ended;
@@ -112,13 +125,25 @@ public final class BossInstance {
     private long lastDeflectMs;
     private int invalidTicks;
 
-    BossInstance(WeaponsPlugin plugin, BossManager manager, Boss boss, LivingEntity entity, Arena arena, double maxHealth) {
+    BossInstance(WeaponsPlugin plugin, BossManager manager, Boss boss, LivingEntity entity, Arena arena,
+                 double maxHealth, Set<BossModifier> affixes) {
         this.plugin = plugin;
         this.manager = manager;
         this.boss = boss;
         this.entity = entity;
         this.arena = arena;
         this.maxHealth = maxHealth;
+        this.affixes = Set.copyOf(affixes);
+        this.affixCooldownMultiplier = manager.modifiers().cooldownMultiplier(boss.id());
+        this.affixReflectFraction = manager.modifiers().reflectFraction(boss.id());
+        this.addManager = new AddManager(manager.modifiers().addCopies(boss.id()));
+        // Opened before phase 1's onEnter runs, so the first phase's own entry and any attack it fires
+        // immediately are inside the record rather than lost ahead of it.
+        this.telemetry = plugin.fightLog().begin(boss.id(),
+                LegacyComponentSerializer.legacySection().serialize(boss.displayName()),
+                arena.world() == null ? "?" : arena.world().getName(),
+                Math.max(1, (int) arena.playersInside().stream().filter(Arena::isCombatant).count()),
+                manager.modifiers().names(boss.id()));
 
         this.ledger = new ArenaLedger(plugin, boss.arenaRestoreEnabled(), boss.maxLedgerBlocks(),
                 boss.restoreBlocksPerTick());
@@ -128,9 +153,13 @@ public final class BossInstance {
         this.meters = new MeterRegistry(this);
 
         this.ambianceHandle = boss.ambiance().start(this);
+        this.musicHandle = BossMusic.start(this);
         this.currentPhase = BossPhase.select(boss.phases(), 1.0);
+        noteTelemetry(() -> telemetry.enterPhase(currentPhase.name(), boss.phases().indexOf(currentPhase),
+                1.0, currentPhase.hasMechanic()));
         this.currentPhase.onEnter(this);
         startGate(currentPhase);
+        startAffixTimer();
 
         if (boss.worldGuardProtectionEnabled()) {
             WorldGuardArenaGuard.start(boss.id(), arena.center(), arena.radius());
@@ -142,6 +171,36 @@ public final class BossInstance {
 
     public WeaponsPlugin plugin() {
         return plugin;
+    }
+
+    /**
+     * This fight's telemetry row — phase timings, attack counts, bypassed mechanics, deaths.
+     * <p>
+     * Handed out rather than kept private because two of the interesting signals are only visible from
+     * outside the fight: whether an outgoing hit landed (the damage listener) and who died to what (the
+     * death listener). Every write goes through {@link #noteTelemetry} internally; external callers use
+     * {@code plugin.fightLog().safely(...)} for the same reason — a recording call must never be the
+     * thing that cancels a hit.
+     */
+    public FightRecord telemetry() {
+        return telemetry;
+    }
+
+    /** Affixes armed for this fight. Empty for a normal pull. */
+    public Set<BossModifier> affixes() {
+        return affixes;
+    }
+
+    /**
+     * The attack currently mid-sequence, or the last one that ran. The best available answer to "what
+     * hit me" — a damage event can name a damage type but never a mechanic, and "killed by MAGIC" is
+     * precisely the uninformative wipe report this telemetry exists to replace.
+     */
+    public String activeAttackName() {
+        if (currentAttackName != null) {
+            return currentAttackName;
+        }
+        return lastAttack == null ? null : lastAttack.name();
     }
 
     public Boss boss() {
@@ -332,6 +391,7 @@ public final class BossInstance {
      */
     public void recordExposure() {
         exposuresThisPhase++;
+        noteTelemetry(telemetry::exposure);
     }
 
     /**
@@ -410,6 +470,8 @@ public final class BossInstance {
                         "Boss event '" + activeEvent.id() + "' threw handling a hit — ignoring it.", e);
             }
         }
+        noteTelemetry(() -> telemetry.playerDamagedBoss(attacker, damageDealt));
+        reflectDamage(attacker, damageDealt);
         if (gate == null) {
             return;
         }
@@ -444,6 +506,10 @@ public final class BossInstance {
         }
         if (!floorLockTimeoutLogged) {
             floorLockTimeoutLogged = true;
+            // Written to this fight's telemetry too, not only the log: one bypassed phase is a story
+            // about one group, twenty of them in the same phase is a broken mechanic, and only the
+            // telemetry files can tell those apart.
+            noteTelemetry(telemetry::mechanicBypassed);
             plugin.getLogger().warning(() -> "Boss '" + boss.id() + "' phase '" + currentPhase.name()
                     + "' handed over its health seam on the floor-lock timeout — its objective went "
                     + boss.phaseFloorTimeoutMs() + "ms without any progress. The mechanic was bypassed, "
@@ -543,6 +609,61 @@ public final class BossInstance {
         return true;
     }
 
+    /**
+     * Runs one telemetry write with its exception swallowed. Every recording call in this class goes
+     * through here: a missing row is a nuisance, a thrown exception mid phase-transition is a broken
+     * fight, and the trade is never close.
+     */
+    private void noteTelemetry(Runnable step) {
+        plugin.fightLog().safely(step);
+    }
+
+    /**
+     * {@link BossModifier#REFLECT}: hands a share of the hit straight back to whoever landed it.
+     * <p>
+     * Dealt as {@code EntityDamageEvent.DamageCause.MAGIC} with no damager, deliberately: crediting the
+     * boss as the source would recurse straight back into
+     * {@link BossDamageListener#onBossDealDamage} and pick up the boss's own outgoing multiplier, which
+     * would make the reflected number a function of the boss's tuning rather than of the player's hit.
+     */
+    private void reflectDamage(Player attacker, double damageDealt) {
+        if (affixReflectFraction <= 0.0 || damageDealt <= 0.0 || attacker == null || !attacker.isValid()) {
+            return;
+        }
+        double reflected = damageDealt * affixReflectFraction;
+        if (reflected < 0.5) {
+            return;
+        }
+        attacker.damage(reflected);
+        Fx.sound(attacker.getLocation(), Sound.ENCHANT_THORNS_HIT, 0.7f, 1.4f);
+    }
+
+    /**
+     * {@link BossModifier#TIMER}: past the deadline the boss stops waiting on health and escalates on a
+     * clock instead, compounding every 30 seconds for as long as the fight lasts.
+     * <p>
+     * A deliberate soft wall rather than a wipe timer. An instant kill at the deadline would end runs
+     * with no read on how close the group was; escalating pressure ends them too, but only after making
+     * the group's actual damage ceiling visible on the way down — which is the thing a timer affix is
+     * being armed to find out.
+     */
+    private void startAffixTimer() {
+        long timerMs = manager.modifiers().timerMs(boss.id());
+        if (timerMs <= 0L) {
+            return;
+        }
+        long deadlineTicks = Math.max(20L, timerMs / 50L);
+        trackTask(plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
+            if (ended) {
+                return;
+            }
+            showTitle(Component.text("THE DEADLINE PASSES", net.kyori.adventure.text.format.NamedTextColor.DARK_RED),
+                    Component.text("It grows stronger from here", net.kyori.adventure.text.format.NamedTextColor.GRAY));
+            empower(manager.modifiers().tuning(BossModifier.TIMER, "escalation-scale", 1.06),
+                    manager.modifiers().tuning(BossModifier.TIMER, "escalation-speed", 1.05));
+        }, deadlineTicks, 600L));
+    }
+
     private void startGate(BossPhase phase) {
         var factory = phase.mechanicFactory();
         if (factory == null) {
@@ -610,7 +731,10 @@ public final class BossInstance {
         if (currentPhase.isEnrage()) {
             scale *= boss.phaseCooldownEnrageCut();
         }
-        return Math.max(boss.phaseCooldownFloor(), scale);
+        // The frenzy affix cuts below the authored floor on purpose — the floor exists so a boss's
+        // normal late-phase pacing stays readable, and an affix armed specifically to remove breathing
+        // room would be pointless if the floor it is meant to break simply clamped it away.
+        return Math.max(boss.phaseCooldownFloor(), scale) * affixCooldownMultiplier;
     }
 
     /** Most cooldown an attack may still owe when a phase it belongs to becomes active. */
@@ -832,6 +956,7 @@ public final class BossInstance {
                     continue;
                 }
                 activeEvent = event;
+                noteTelemetry(() -> telemetry.eventFired(event.id(), fraction));
                 try {
                     event.run(this, () -> activeEvent = null);
                 } catch (Exception e) {
@@ -930,6 +1055,9 @@ public final class BossInstance {
             // attack off. Capping the carried-over cooldown keeps every phase transition to at most
             // a short beat of "nothing" instead of the whole cooldown window.
             capCarryoverCooldowns(currentPhase);
+            BossPhase entered = currentPhase;
+            noteTelemetry(() -> telemetry.enterPhase(entered.name(), boss.phases().indexOf(entered),
+                    fraction, entered.hasMechanic()));
             currentPhase.onEnter(this);
             startGate(currentPhase);
             if (enteringEnrage) {
@@ -972,10 +1100,13 @@ public final class BossInstance {
             BossAttack attack = AttackSelector.select(currentPhase.attacks(), lastAttack, lastUsedAtMs, phaseCooldownScale());
             if (attack != null) {
                 attackInProgress = true;
+                currentAttackName = attack.name();
+                noteTelemetry(() -> telemetry.attackUsed(attack.name()));
                 AttackContext ctx = new AttackContext(plugin, this, currentTarget);
                 try {
                     attack.run(ctx, () -> {
                         attackInProgress = false;
+                        currentAttackName = null;
                         lastAttack = attack;
                         lastUsedAtMs.put(attack, System.currentTimeMillis());
                     });
@@ -987,6 +1118,7 @@ public final class BossInstance {
                     plugin.getLogger().log(java.util.logging.Level.SEVERE,
                             "Boss attack '" + attack.name() + "' threw before starting — recovering instead of freezing the boss.", e);
                     attackInProgress = false;
+                    currentAttackName = null;
                 }
             }
         }
@@ -997,6 +1129,11 @@ public final class BossInstance {
             return;
         }
         ended = true;
+
+        // Closed out first, while the arena still has the people in it who were fighting: survivor count
+        // is what separates "they wiped" from "an admin despawned it", and every teardown step below
+        // starts moving players and entities around.
+        closeTelemetry(reason);
 
         // manager.forget() MUST run no matter what happens below — it's what allows the boss to be
         // spawned again. Without the try/finally, an exception partway through cleanup (e.g. from
@@ -1046,6 +1183,9 @@ public final class BossInstance {
             if (ambianceHandle != null) {
                 ambianceHandle.end();
             }
+            if (musicHandle != null) {
+                musicHandle.end();
+            }
             BossHologram.stop(this);
 
             World world = entity.getWorld();
@@ -1065,12 +1205,18 @@ public final class BossInstance {
                 String bossName = LegacyComponentSerializer.legacySection().serialize(boss.displayName());
                 int nearbyPlayers = Math.max(1, Arena.playersNear(deathLocation, arena.radius() + UI_PRESENCE_BUFFER).size());
                 DiscordNotifier.kill(plugin, bossName, nearbyPlayers);
-                for (LootTable.RolledDrop drop : boss.lootTable().rollWithOdds()) {
+                // Ledger first, loot second: whether anybody present is on their first-ever clear is what
+                // decides whether the signature item is certain or a roll, so the credit has to be written
+                // before the table is rolled.
+                List<Player> firstClearers = creditClears(deathLocation, bossName);
+                double guaranteedChance = firstClearers.isEmpty() ? boss.repeatClearSignatureChance() : 1.0;
+                for (LootTable.RolledDrop drop : boss.lootTable().rollWithOdds(guaranteedChance)) {
                     world.dropItemNaturally(deathLocation, drop.item());
                     if (drop.chance() <= rareThreshold) {
                         DiscordNotifier.rareDrop(plugin, bossName, itemDisplayName(drop.item()), drop.chance());
                     }
                 }
+                grantFirstClearLoot(firstClearers);
             }
         } finally {
             // In the finally block, and after every other teardown step: whatever else went wrong
@@ -1079,13 +1225,140 @@ public final class BossInstance {
             //
             // PLUGIN_DISABLE restores synchronously — no tick will ever run again, so a batched
             // restore would never finish and the damage would become permanent at shutdown.
+            // CLEARED (an admin /bossclear) also restores synchronously — the whole point of that
+            // command is an arena that is instantly fresh, not one that finishes rolling back over
+            // however many ticks the block count needs.
             try {
-                ledger.restore(reason == EndReason.PLUGIN_DISABLE);
+                ledger.restore(reason == EndReason.PLUGIN_DISABLE || reason == EndReason.CLEARED);
             } catch (Exception e) {
                 plugin.getLogger().log(java.util.logging.Level.SEVERE,
                         "Arena restore failed for boss '" + boss.id() + "' — terrain damage may persist.", e);
             }
             manager.forget(this);
+        }
+    }
+
+    /**
+     * Seals this fight's telemetry row and writes it out, then shows a wipe recap to anyone still in the
+     * arena if that is what this was.
+     * <p>
+     * Survivors are counted as live combatants still standing in the arena. A run that ended with the
+     * boss alive, at least one death, and nobody left is a wipe; a despawn with people standing around is
+     * an admin tidying up, and reporting that as a wipe would poison exactly the statistic this exists to
+     * collect.
+     */
+    private void closeTelemetry(EndReason reason) {
+        double fraction = 0.0;
+        int survivors = 0;
+        try {
+            fraction = entity.isValid() && !entity.isDead()
+                    ? Math.max(0.0, Math.min(1.0, entity.getHealth() / maxHealth)) : 0.0;
+            for (Player player : arena.playersNear(UI_PRESENCE_BUFFER)) {
+                if (Arena.isCombatant(player) && !player.isDead()) {
+                    survivors++;
+                }
+            }
+        } catch (Exception e) {
+            plugin.getLogger().log(java.util.logging.Level.WARNING,
+                    "Could not read final fight state for telemetry on '" + boss.id() + "'.", e);
+        }
+        plugin.fightLog().finish(telemetry, reason.name(), fraction, survivors);
+        if (telemetry.wipe()) {
+            showWipeRecap();
+        }
+    }
+
+    /**
+     * The one-screen post-mortem a wiping group actually needs: how far they got, how long it took, and
+     * which attack was doing the killing. Shown in chat rather than as a title, because it is meant to be
+     * re-read while deciding what to change on the next pull.
+     */
+    private void showWipeRecap() {
+        List<Component> lines = new ArrayList<>();
+        lines.add(Component.text("— Wipe: ", net.kyori.adventure.text.format.NamedTextColor.DARK_RED)
+                .append(boss.displayName())
+                .append(Component.text(" —", net.kyori.adventure.text.format.NamedTextColor.DARK_RED)));
+        lines.add(Component.text("Reached phase " + telemetry.deepestPhase() + "/" + boss.phases().size()
+                        + " · boss left at " + Math.round(telemetry.endHealthFraction() * 100) + "%"
+                        + " · " + (telemetry.durationMs() / 1000) + "s",
+                net.kyori.adventure.text.format.NamedTextColor.GRAY));
+        String killer = telemetry.deaths().stream()
+                .collect(java.util.stream.Collectors.groupingBy(FightRecord.DeathRecord::killingAttack,
+                        java.util.stream.Collectors.counting()))
+                .entrySet().stream()
+                .max(java.util.Map.Entry.comparingByValue())
+                .map(entry -> entry.getKey() + " (" + entry.getValue() + " death"
+                        + (entry.getValue() == 1 ? "" : "s") + ")")
+                .orElse("unknown");
+        lines.add(Component.text("Most deaths to: ", net.kyori.adventure.text.format.NamedTextColor.GRAY)
+                .append(Component.text(killer, net.kyori.adventure.text.format.NamedTextColor.RED)));
+        for (FightRecord.PhaseRecord phase : telemetry.phases()) {
+            if (phase.hadMechanic() && phase.mechanicBypassed()) {
+                lines.add(Component.text("Phase " + (phase.index() + 1) + " (" + phase.name()
+                                + ") objective was never engaged.",
+                        net.kyori.adventure.text.format.NamedTextColor.YELLOW));
+            }
+        }
+        for (Player player : arena.playersNear(UI_PRESENCE_BUFFER)) {
+            lines.forEach(player::sendMessage);
+        }
+    }
+
+    /**
+     * Writes this kill into every present combatant's permanent ledger and returns the ones for whom it
+     * was a first-ever clear of this boss.
+     * <p>
+     * Credit goes to presence at the kill, not to damage dealt: a fight this size has real jobs that
+     * involve doing no damage at all (carrying a Crown Shard, holding a control zone, running fire to the
+     * Heart), and a damage-based ledger would have quietly told the players doing them that they hadn't
+     * beaten the boss. Spectators and creative players are excluded — {@link Arena#combatants} already
+     * draws that line everywhere else in the fight.
+     * <p>
+     * Never throws out of here: a ledger write is bookkeeping, and a disk problem must not abort the rest
+     * of the defeat sequence (loot, cinematic, arena restore) that players are actually waiting on.
+     */
+    private List<Player> creditClears(Location deathLocation, String bossName) {
+        List<Player> firstClearers = new ArrayList<>();
+        long durationMs = System.currentTimeMillis() - startedAtMs;
+        for (Player player : Arena.combatants(deathLocation, arena.radius() + UI_PRESENCE_BUFFER)) {
+            try {
+                if (plugin.bossProgress().recordKill(player, boss.id(), durationMs)) {
+                    firstClearers.add(player);
+                }
+            } catch (Exception e) {
+                plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                        "Failed to credit " + player.getName() + " with a clear of '" + boss.id() + "'.", e);
+            }
+        }
+        if (!firstClearers.isEmpty()) {
+            String names = firstClearers.stream().map(Player::getName).reduce((a, b) -> a + ", " + b).orElse("");
+            plugin.getLogger().info(() -> "First clear of '" + boss.id() + "' for: " + names);
+            DiscordNotifier.firstClear(plugin, bossName, names);
+        }
+        return firstClearers;
+    }
+
+    /**
+     * Hands each first-time clearer their once-ever reward, straight into their inventory rather than
+     * onto the floor — a repeat clearer standing on the same tile must not be able to scoop it up.
+     * Overflow drops at that player's own feet, never at the boss's, so a full pack still ends with the
+     * item in front of the person who earned it.
+     */
+    private void grantFirstClearLoot(List<Player> firstClearers) {
+        if (firstClearers.isEmpty() || !boss.lootTable().hasFirstClear()) {
+            return;
+        }
+        for (Player player : firstClearers) {
+            for (ItemStack item : boss.lootTable().rollFirstClear()) {
+                for (ItemStack overflow : player.getInventory().addItem(item).values()) {
+                    player.getWorld().dropItemNaturally(player.getLocation(), overflow);
+                }
+            }
+            player.sendMessage(Component.text("First clear! ", net.kyori.adventure.text.format.NamedTextColor.GOLD)
+                    .append(boss.displayName())
+                    .append(Component.text(" will never drop this again.",
+                            net.kyori.adventure.text.format.NamedTextColor.GRAY)));
+            Fx.sound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
         }
     }
 

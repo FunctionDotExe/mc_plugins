@@ -63,35 +63,43 @@ public final class ChainLightningAttack extends BossAttack {
 
                     List<Player> arena = ctx.arena().playersInside();
                     Set<UUID> hit = new HashSet<>();
-                    Location prev = origin.clone().add(0, 1.4, 0);
-                    Player current = ctx.target();
-                    // Total chain = the target hit plus up to maxArcs jumps to the next nearest unhit player.
-                    for (int i = 0; i <= maxArcs && current != null; i++) {
-                        hit.add(current.getUniqueId());
-                        Location currentLoc = current.getLocation().add(0, 1, 0);
-                        Fx.line(prev, currentLoc, Particle.ELECTRIC_SPARK, 18);
-                        Fx.coloredBurst(currentLoc, STORM_YELLOW, 1.4f, 19, 0.3);
-                        if (currentLoc.getWorld() != null) {
-                            currentLoc.getWorld().strikeLightningEffect(currentLoc);
-                        }
-                        current.damage(damage, ctx.boss());
-                        Fx.bloodSpray(currentLoc);
-                        Fx.sound(currentLoc, Sound.ENTITY_LIGHTNING_BOLT_IMPACT, 0.9f, 1.6f);
-
+                    // Resolve the whole chain's order first, then apply damage — the "anti-stack tax"
+                    // (§3.4/§3.6) scales per-player damage UP with how many players ended up clustered
+                    // close enough to chain together, so the final chain length has to be known before
+                    // any single hit lands.
+                    List<Player> chain = new java.util.ArrayList<>();
+                    Player probe = ctx.target();
+                    for (int i = 0; i <= maxArcs && probe != null; i++) {
+                        chain.add(probe);
+                        hit.add(probe.getUniqueId());
                         Player next = null;
                         double bestDistSq = arcRange * arcRange;
                         for (Player candidate : arena) {
                             if (hit.contains(candidate.getUniqueId())) {
                                 continue;
                             }
-                            double distSq = candidate.getLocation().distanceSquared(current.getLocation());
+                            double distSq = candidate.getLocation().distanceSquared(probe.getLocation());
                             if (distSq <= bestDistSq) {
                                 bestDistSq = distSq;
                                 next = candidate;
                             }
                         }
+                        probe = next;
+                    }
+
+                    double perPlayerDamage = damage * chain.size();
+                    Location prev = origin.clone().add(0, 1.4, 0);
+                    for (Player current : chain) {
+                        Location currentLoc = current.getLocation().add(0, 1, 0);
+                        Fx.line(prev, currentLoc, Particle.ELECTRIC_SPARK, 18);
+                        Fx.coloredBurst(currentLoc, STORM_YELLOW, 1.4f, 19, 0.3);
+                        if (currentLoc.getWorld() != null) {
+                            currentLoc.getWorld().strikeLightningEffect(currentLoc);
+                        }
+                        current.damage(perPlayerDamage, ctx.boss());
+                        Fx.bloodSpray(currentLoc);
+                        Fx.sound(currentLoc, Sound.ENTITY_LIGHTNING_BOLT_IMPACT, 0.9f, 1.6f);
                         prev = currentLoc;
-                        current = next;
                     }
                 },
                 12, onComplete);

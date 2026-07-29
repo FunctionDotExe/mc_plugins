@@ -7,14 +7,9 @@ import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
 import dev.rbm72.weaponsplugin.boss.events.BeaconEvent;
 import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
-import dev.rbm72.weaponsplugin.boss.mechanics.DriftingDiscField;
-import dev.rbm72.weaponsplugin.boss.mechanics.EchoZoneMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.FloodingFloorMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.MechanicField;
-import dev.rbm72.weaponsplugin.boss.mechanics.StackMeterMechanic;
+import dev.rbm72.weaponsplugin.boss.bosses.weeping.WeepingPhases;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.CollapsingGazeAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.FrenziedContractionAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.SorrowfulWailAttack;
@@ -40,9 +35,20 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * The Weeping Colossus — a screen-filling ghast that gets smaller and faster the more it hurts,
- * contracting phase over phase until its enrage form is a tiny, shrieking blur of a thing. Where
- * most bosses grow into their final form, this one shrinks into it.
+ * The Weeping Colossus — the horror is the <b>room</b>, not the creature. It is chained inside a machine
+ * that closes on it and on you: four real piston wall sections advance inward on a visible cycle, real
+ * dripstone falls from the ceiling and stays where it lands, and in P3 the walls seal overhead and the
+ * lights genuinely go out (batch-3 spec §5). It is the inverse of the Void Sovereign — that boss removes
+ * floor, this one removes <em>space</em>, and the Colossus shrinks and speeds up as the room does.
+ * <ol>
+ *   <li><b>The Chamber</b> — learn the wall cycle and jam two sections.</li>
+ *   <li><b>Dripstone</b> — the danger goes vertical in a room already closing horizontally.</li>
+ *   <li><b>The Dark</b> — real block darkness; torches are construction, and it snuffs them.</li>
+ *   <li><b>The Box</b> — the walls halt, and the finale is fought in the room the group kept.</li>
+ * </ol>
+ * Every phase the room is smaller and there is no phase that gives space back, but
+ * {@code weeping.PistonWalls#minChamber()} is a hard floor that scales with the group, so the final
+ * chamber is always winnable — §5.8 names that as the real work of this boss.
  */
 public final class WeepingColossus extends Boss {
 
@@ -61,28 +67,26 @@ public final class WeepingColossus extends Boss {
         FrenziedContractionAttack frenziedContraction = new FrenziedContractionAttack(plugin);
 
         this.phases = List.of(
-                // Rising Tears: its grief floods the arena and drains again on a rhythm. It costs the
-                // group the floor rather than their health, and finally makes the terrain matter.
-                new BossPhase("The Colossus", 1.0,
+                // The Chamber: full-size room, slow huge Colossus, and the walls begin to advance.
+                new BossPhase("The Chamber", 1.0,
                         List.of(tearBarrage, sorrowfulWail),
                         false, WeepingColossus::onEnterPhase1,
-                        this::risingTears),
-                // Ungated: no mechanic, just the colossus and its grief. Pure race.
-                new BossPhase("First Contraction", 0.72,
+                        instance -> WeepingPhases.chamber(instance, 0.76)),
+                // Dripstone: ceiling awareness on top of wall management on top of a boss.
+                new BossPhase("Dripstone", 0.76,
                         List.of(tearBarrage, sorrowfulWail, collapsingGaze),
-                        false, WeepingColossus::onEnterPhase2),
-                // Grief Echo: its signature. Everywhere it has stood detonates again a few seconds
-                // later, so chasing it is exactly the wrong instinct — you have to lead it instead.
-                new BossPhase("Second Contraction", 0.40,
+                        false, WeepingColossus::onEnterPhase2,
+                        instance -> WeepingPhases.dripstone(instance, 0.52)),
+                // The Dark: the ceiling seals, and piston work happens by torchlight the boss puts out.
+                new BossPhase("The Dark", 0.52,
                         List.of(tearBarrage, sorrowfulWail, collapsingGaze, frenziedContraction),
                         false, WeepingColossus::onEnterPhase3,
-                        this::griefEcho),
-                // Downpour Despair: the storm closes in and only the few patches of shelter hold it
-                // off. Its last stand is fought permanently on the move between them.
-                new BossPhase("Final Contraction", 0.15,
+                        instance -> WeepingPhases.theDark(instance, 0.26)),
+                // The Box: a close-quarters duel in terrain the fight created.
+                new BossPhase("The Box", 0.26,
                         List.of(tearBarrage, sorrowfulWail, collapsingGaze, frenziedContraction),
                         true, WeepingColossus::onEnterEnrage,
-                        this::downpourDespair));
+                        WeepingPhases::theBox));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Tearfall(plugin).createItem())
@@ -124,65 +128,21 @@ public final class WeepingColossus extends Boss {
     }
 
     /**
-     * Rising Tears: the waterline climbs, drowns everything under it, peaks and drains. Shared with the
-     * Tide Leviathan's flood by design — it is one primitive, parameterised, rather than two
-     * near-identical implementations.
+     * Four times the roster default. Jamming a wall means walking to it, cutting a feed under fire and
+     * getting back, and {@code WeepingPhaseMechanic#progressSignal} counts every jam — a group holding
+     * the room open is doing the fight even while the boss's health barely moves.
      */
-    private PhaseMechanic risingTears(BossInstance instance) {
-        return new FloodingFloorMechanic(instance, "Rising Tears", SORROW_BLUE,
-                configDouble("tears-rise-per-second", 0.22),
-                configDouble("tears-max-rise", 4.5),
-                configInt("tears-peak-hold-ticks", 100),
-                configInt("tears-drained-pause-ticks", 90),
-                configDouble("tears-drown-damage-per-second", 4.5),
-                false);
+    @Override
+    public int phaseFloorTimeoutMs() {
+        return configInt("phase-floor-timeout-ms", 180_000);
     }
 
-    /**
-     * Grief Echo: its signature. Every few seconds the arena remembers where the colossus stood and
-     * detonates there again. Melee players are punished for standing where it <em>was</em>, which is
-     * exactly where chasing it leaves them — the answer is to lead it rather than follow.
-     */
-    private PhaseMechanic griefEcho(BossInstance instance) {
-        return new EchoZoneMechanic(instance, "Grief Echo", SORROW_BLUE,
-                configInt("echo-record-interval-ticks", 40),
-                configInt("echo-delay-ticks", 100),
-                configDouble("echo-radius", 4.0),
-                configDouble("echo-damage", 14.0),
-                configInt("echo-max-pending", 5));
-    }
-
-    /**
-     * Downpour Despair: the storm blinds and grinds down anyone caught in the open, and only the
-     * drifting patches of shelter hold it off. Late roster, so failing it hardens the colossus rather
-     * than only hurting the player (design rule 4).
-     */
-    private PhaseMechanic downpourDespair(BossInstance instance) {
-        MechanicField shelters = new DriftingDiscField(
-                configInt("downpour-shelters", 2),
-                configDouble("downpour-shelter-radius", 4.5),
-                configDouble("downpour-shelter-drift", 2.0),
-                Color.fromRGB(200, 220, 255),
-                configDouble("downpour-shelter-spread", 0.5));
-        return new StackMeterMechanic(instance, "Despair", SORROW_BLUE, shelters,
-                configDouble("downpour-gain-per-second", 9.0),
-                configDouble("downpour-drain-per-second", 20.0),
-                configDouble("downpour-cap", 100.0),
-                StackMeterMechanic.cripplingAndEmpower(
-                        configDouble("downpour-damage", 20.0),
-                        configInt("downpour-debuff-ticks", 80),
-                        configDouble("downpour-harden-step", 0.04)),
-                Component.text("DOWNPOUR", NamedTextColor.BLUE).decoration(TextDecoration.BOLD, true),
-                Component.text("Get under shelter — it moves", NamedTextColor.GRAY),
-                "sheltered", "EXPOSED — find shelter");
-    }
-
-    /** Offset from its phase boundaries (0.72 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    /** Offset from its phase boundaries (0.76 / 0.52 / 0.26) so they land mid-phase, not on transitions. */
     @Override
     public List<BossEvent> events() {
         return List.of(
-                new HitCountShieldEvent(plugin, id(), new double[] {0.86, 0.30}),
-                new BeaconEvent(plugin, id(), new double[] {0.62, 0.24}));
+                new HitCountShieldEvent(plugin, id(), new double[] {0.86, 0.38}),
+                new BeaconEvent(plugin, id(), new double[] {0.64, 0.32}));
     }
 
     @Override
@@ -229,8 +189,8 @@ public final class WeepingColossus extends Boss {
         Fx.expandingRings(instance.plugin(), loc, Particle.SPLASH, 6.0, 3, 2L);
         Fx.sound(loc, Sound.ENTITY_GHAST_HURT, 1.1f, 0.9f);
         instance.showTitle(
-                Component.text("First Contraction", NamedTextColor.BLUE).decoration(TextDecoration.BOLD, true),
-                Component.text("It's pulling itself smaller on purpose", NamedTextColor.GRAY));
+                Component.text("Dripstone", NamedTextColor.BLUE).decoration(TextDecoration.BOLD, true),
+                Component.text("Look up — and stop standing together", NamedTextColor.GRAY));
     }
 
     private static void onEnterPhase3(BossInstance instance) {
@@ -240,8 +200,8 @@ public final class WeepingColossus extends Boss {
         Fx.burst(loc.clone().add(0, 1.2, 0), Particle.SPLASH, 34, 0.7);
         Fx.sound(loc, Sound.ENTITY_GHAST_HURT, 1.2f, 1.1f);
         instance.showTitle(
-                Component.text("Second Contraction", NamedTextColor.DARK_BLUE).decoration(TextDecoration.BOLD, true),
-                Component.text("Smaller, faster, and considerably angrier", NamedTextColor.GRAY));
+                Component.text("The Dark", NamedTextColor.DARK_BLUE).decoration(TextDecoration.BOLD, true),
+                Component.text("The ceiling closes — get torches up and keep them up", NamedTextColor.GRAY));
     }
 
     private static void onEnterEnrage(BossInstance instance) {
@@ -252,7 +212,7 @@ public final class WeepingColossus extends Boss {
         Fx.expandingRings(instance.plugin(), loc, Particle.SOUL_FIRE_FLAME, 6.5, 4, 2L);
         Fx.sound(loc, Sound.ENTITY_GHAST_SCREAM, 1.4f, 1.5f);
         instance.showTitle(
-                Component.text("☁ FINAL CONTRACTION ☁", NamedTextColor.RED).decoration(TextDecoration.BOLD, true),
+                Component.text("☁ THE BOX ☁", NamedTextColor.RED).decoration(TextDecoration.BOLD, true),
                 Component.text("Barely a shadow of itself, and twice as fast", NamedTextColor.GRAY));
     }
 

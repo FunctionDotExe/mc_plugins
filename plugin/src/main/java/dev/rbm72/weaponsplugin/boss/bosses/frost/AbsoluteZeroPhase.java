@@ -70,7 +70,9 @@ final class AbsoluteZeroPhase extends FrostPhaseMechanic {
         Fx.sound(centre, Sound.ENTITY_GENERIC_EXPLODE, 1.2f, 0.5f);
 
         double radius = fight.config().dbl("absolute-zero-safe-radius", 4.0);
-        double damage = fight.config().dbl("absolute-zero-damage", 8.0);
+        // Named apart from AbsoluteZeroAttack's own absolute-zero-damage: both read
+        // bosses.frost_queen.<key>, so a shared name would tie this phase's pulse to that attack's hit.
+        double damage = fight.config().dbl("absolute-zero-pulse-damage", 8.0);
         double chillSpike = fight.config().dbl("absolute-zero-chill-spike", 70.0);
         for (Player player : combatants()) {
             if (fight.campfires().isNearLitCampfire(player.getLocation(), radius)) {

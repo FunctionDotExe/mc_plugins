@@ -113,7 +113,7 @@ public final class BlightSigilsAttack extends BossAttack {
                                     Fx.coloredBurst(sigil.location().add(0, 0.8, 0), TOXIC, 1.2f, 12, 0.3);
                                     for (Player player : ctx.arena().playersInside()) {
                                         if (player.getLocation().distanceSquared(sigil.location()) <= pulseRadius * pulseRadius) {
-                                            player.damage(pulseDamage, ctx.boss());
+                                            tickHurt(ctx, player, pulseDamage);
                                             player.addPotionEffect(new PotionEffect(PotionEffectType.POISON, poisonTicks, 0));
                                         }
                                     }

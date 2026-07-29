@@ -3,12 +3,14 @@ package dev.rbm72.weaponsplugin.listeners;
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.ability.CooldownManager.Slot;
+import dev.rbm72.weaponsplugin.ability.UltimateChargeManager;
 import dev.rbm72.weaponsplugin.ability.WeaponSwitchLock;
 import dev.rbm72.weaponsplugin.accessory.AccessoryManager;
 import dev.rbm72.weaponsplugin.commands.OpCooldownCommand;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Weapon;
 import dev.rbm72.weaponsplugin.items.WeaponRegistry;
+import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -32,16 +34,18 @@ public final class WeaponInteractListener implements Listener {
     private final AccessoryManager accessories;
     private final OpCooldownCommand opCooldown;
     private final WeaponSwitchLock switchLock;
+    private final UltimateChargeManager ultimateCharge;
 
     public WeaponInteractListener(WeaponsPlugin plugin, WeaponRegistry registry, CooldownManager cooldowns,
                                   AccessoryManager accessories, OpCooldownCommand opCooldown,
-                                  WeaponSwitchLock switchLock) {
+                                  WeaponSwitchLock switchLock, UltimateChargeManager ultimateCharge) {
         this.plugin = plugin;
         this.registry = registry;
         this.cooldowns = cooldowns;
         this.accessories = accessories;
         this.opCooldown = opCooldown;
         this.switchLock = switchLock;
+        this.ultimateCharge = ultimateCharge;
     }
 
     @EventHandler
@@ -92,10 +96,30 @@ public final class WeaponInteractListener implements Listener {
             return;
         }
 
+        // A charge-gated ultimate is checked and spent before anything else fires, and told about
+        // clearly when it is not ready. Without the notice, an unearned ultimate is a right-click that
+        // plays a click and does nothing — indistinguishable from a broken weapon.
+        boolean chargedUltimate = slot == Slot.ULTIMATE && weapon.ultimateChargeSpec() != null;
+        if (!bypass && chargedUltimate && !ultimateCharge.canFire(player, weapon)) {
+            Fx.sound(player, Sound.UI_BUTTON_CLICK, 0.5f, 1.2f);
+            plugin.actionBarHub().flash(player, ultimateCharge.notReadyNotice(player, weapon),
+                    1500, ActionBarHub.PRIORITY_NOTICE);
+            return;
+        }
+        if (!bypass && chargedUltimate) {
+            ultimateCharge.spend(player, weapon);
+        }
+
         if (!bypass) {
-            cooldowns.start(player, weapon, slot, durationSeconds * accessories.cooldownMultiplier(player, weapon));
+            // A charged ultimate still takes its floor through the normal cooldown path, so the HUD,
+            // the durability meter and the ready chime all keep working exactly as they do elsewhere.
+            double gate = chargedUltimate ? weapon.ultimateChargeSpec().cooldownFloorSeconds() : durationSeconds;
+            cooldowns.start(player, weapon, slot, gate * accessories.cooldownMultiplier(player, weapon));
         }
         castFx(player, weapon, slot);
+        if (chargedUltimate) {
+            ultimateCharge.onSpentFx(player, weapon);
+        }
 
         switch (slot) {
             case ABILITY1 -> weapon.ability1(player);
@@ -105,6 +129,7 @@ public final class WeaponInteractListener implements Listener {
         }
 
         accessories.onAbilityCast(player, weapon, slot);
+        ultimateCharge.onAbilityCast(player, weapon, slot);
     }
 
     /**

@@ -3,6 +3,7 @@ package dev.rbm72.weaponsplugin.boss.gates;
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Arena;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.TickDamage;
 import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.ui.ActionBarHub;
@@ -143,7 +144,7 @@ public final class ControlZoneGate implements PhaseMechanic {
             }
             if (holdBurnIntervalTicks > 0 && ticks % holdBurnIntervalTicks < TICK_INTERVAL) {
                 for (Player holder : holders) {
-                    holder.damage(holdBurnDamage, instance.entity());
+                    TickDamage.apply(instance, holder, holdBurnDamage);
                     Fx.coloredBurst(holder.getLocation().add(0, 1, 0), color, 1.0f, 12, 0.3);
                 }
             }

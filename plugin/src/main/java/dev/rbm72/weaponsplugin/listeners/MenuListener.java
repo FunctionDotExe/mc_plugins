@@ -12,6 +12,8 @@ import dev.rbm72.weaponsplugin.gui.ConsumableMenu;
 import dev.rbm72.weaponsplugin.gui.ConsumableMenuHolder;
 import dev.rbm72.weaponsplugin.gui.HubMenu;
 import dev.rbm72.weaponsplugin.gui.HubMenuHolder;
+import dev.rbm72.weaponsplugin.gui.OpItemMenu;
+import dev.rbm72.weaponsplugin.gui.OpItemMenuHolder;
 import dev.rbm72.weaponsplugin.gui.ShieldMenu;
 import dev.rbm72.weaponsplugin.gui.ShieldMenuHolder;
 import dev.rbm72.weaponsplugin.gui.RidableMenu;
@@ -75,6 +77,9 @@ public final class MenuListener implements Listener {
         } else if (event.getInventory().getHolder() instanceof ConsumableMenuHolder) {
             event.setCancelled(true);
             handleConsumableCatalog(player, event.getCurrentItem());
+        } else if (event.getInventory().getHolder() instanceof OpItemMenuHolder) {
+            event.setCancelled(true);
+            handleOpItemCatalog(player, event.getRawSlot(), event.getCurrentItem());
         }
     }
 
@@ -87,7 +92,8 @@ public final class MenuListener implements Listener {
                 || event.getInventory().getHolder() instanceof ShieldMenuHolder
                 || event.getInventory().getHolder() instanceof RidableMenuHolder
                 || event.getInventory().getHolder() instanceof RealmsMenuHolder
-                || event.getInventory().getHolder() instanceof ConsumableMenuHolder) {
+                || event.getInventory().getHolder() instanceof ConsumableMenuHolder
+                || event.getInventory().getHolder() instanceof OpItemMenuHolder) {
             event.setCancelled(true);
         }
     }
@@ -123,6 +129,9 @@ public final class MenuListener implements Listener {
         } else if (rawSlot == HubMenu.WEAPONS_SLOT) {
             player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.6f, 1.2f);
             plugin.getServer().getScheduler().runTask(plugin, () -> player.openInventory(WeaponMenu.open(plugin, player)));
+        } else if (rawSlot == HubMenu.OP_ITEMS_SLOT && player.hasPermission("weaponsplugin.op")) {
+            player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.6f, 1.2f);
+            plugin.getServer().getScheduler().runTask(plugin, () -> player.openInventory(OpItemMenu.open(plugin, player)));
         }
     }
 
@@ -146,6 +155,21 @@ public final class MenuListener implements Listener {
         plugin.consumableRegistry().identify(clicked).ifPresent(consumable -> {
             giveOrDrop(player, consumable.createItem());
             player.sendMessage(Component.text("You received the ", NamedTextColor.AQUA).append(consumable.displayName()));
+            player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.8f, 1.2f);
+        });
+    }
+
+    /**
+     * The operator shelf. Gated on both the permission and the slot being a catalog slot — the menu's own
+     * "nothing here" panel is an item too, and clicking it must not be a way to identify an op item.
+     */
+    private void handleOpItemCatalog(Player player, int rawSlot, ItemStack clicked) {
+        if (!player.hasPermission("weaponsplugin.op") || !OpItemMenu.isCatalogSlot(rawSlot)) {
+            return;
+        }
+        plugin.opItemRegistry().identify(clicked).ifPresent(opItem -> {
+            giveOrDrop(player, opItem.createItem());
+            player.sendMessage(Component.text("You received the ", NamedTextColor.GOLD).append(opItem.displayName()));
             player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.8f, 1.2f);
         });
     }
@@ -176,9 +200,17 @@ public final class MenuListener implements Listener {
         Inventory top = event.getView().getTopInventory();
         Inventory clickedInv = event.getClickedInventory();
         AccessoryManager manager = plugin.accessoryManager();
+        AccessoryMenuHolder holder = (AccessoryMenuHolder) top.getHolder();
 
-        // Click inside the menu itself: catalog grab (op) or unequip an equipped slot.
+        // Click inside the menu itself: page turn, catalog grab (op), or unequip an equipped slot.
         if (clickedInv == top) {
+            ItemStack clicked = event.getCurrentItem();
+            if (AccessoryMenu.isPageButton(plugin, clicked)) {
+                holder.setPage(holder.page() + AccessoryMenu.readPageDelta(plugin, clicked));
+                AccessoryMenu.render(plugin, player, holder);
+                player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.5f, 1.2f);
+                return;
+            }
             int rawSlot = event.getRawSlot();
             int equipIndex = AccessoryMenu.equipIndexOf(rawSlot);
             if (equipIndex >= 0) {
@@ -186,7 +218,7 @@ public final class MenuListener implements Listener {
                 if (removed != null) {
                     giveOrDrop(player, removed.createItem());
                     player.playSound(player.getLocation(), Sound.ITEM_ARMOR_EQUIP_GENERIC, 0.7f, 0.8f);
-                    AccessoryMenu.render(plugin, player, top);
+                    AccessoryMenu.render(plugin, player, holder);
                 }
                 return;
             }
@@ -212,7 +244,7 @@ public final class MenuListener implements Listener {
                         clicked.setAmount(amount - 1);
                     }
                     player.playSound(player.getLocation(), Sound.ITEM_ARMOR_EQUIP_GENERIC, 0.7f, 1.2f);
-                    AccessoryMenu.render(plugin, player, top);
+                    AccessoryMenu.render(plugin, player, holder);
                 } else {
                     player.sendMessage(Component.text("No free accessory slot, or it's already equipped.", NamedTextColor.RED));
                     player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.5f, 0.8f);

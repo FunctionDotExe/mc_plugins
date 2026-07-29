@@ -140,7 +140,7 @@ public final class HazardPatchMechanic extends TickingMechanic {
                 continue;
             }
             if (elapsedTicks % 20 == 0) {
-                hurt(player, damagePerSecond);
+                tickHurt(player, damagePerSecond);
                 if (effect != null && player.isValid() && !player.isDead()) {
                     player.addPotionEffect(new PotionEffect(effect, 60, effectAmplifier));
                 }

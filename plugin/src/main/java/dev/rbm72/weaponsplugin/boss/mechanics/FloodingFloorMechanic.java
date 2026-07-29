@@ -120,7 +120,7 @@ public final class FloodingFloorMechanic extends TickingMechanic {
                 continue;
             }
             if (elapsedTicks % 20 == 0) {
-                hurt(player, drownDamagePerSecond);
+                tickHurt(player, drownDamagePerSecond);
             }
             if (player.isValid() && !player.isDead()) {
                 player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 20, 1, false, false));

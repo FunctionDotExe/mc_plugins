@@ -4,6 +4,7 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Arena;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
+import dev.rbm72.weaponsplugin.boss.mechanics.SoloEscape;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.text.Component;
@@ -36,14 +37,24 @@ import java.util.concurrent.ThreadLocalRandom;
  * what beats plates; bunching up is what beats this — so a boss built on it plays nothing like a
  * boss built on those, even with an identical attack list.
  * <p>
- * A solo player gets no rescuer and has to eat the fail — deliberate: the gate still resolves and
- * re-arms rather than deadlocking, it just costs them. {@link BossInstance#clampToPhaseFloor}'s
- * timeout valve covers the pathological case on a final phase.
+ * Solo, the captive is their own rescuer, but has to <b>struggle</b> for it — see {@link SoloEscape}. The
+ * channel only advances while they hold sneak, and at a reduced rate, so escaping alone is slower and
+ * costs them the ability to reposition while the boss's attack pool keeps firing. That is deliberately
+ * neither of the two easy answers: not a guaranteed fail (a disabled mechanic with extra steps), and not a
+ * free automatic release (which taught a lone player nothing about the mechanic they will meet again in a
+ * group). {@link BossInstance#clampToPhaseFloor}'s timeout valve still covers the pathological case.
  */
 public final class RescueGate implements PhaseMechanic {
 
     /** How close an ally must stand to the captive to count as channelling the rescue. */
     private static final double RESCUE_RADIUS = 3.0;
+
+    /**
+     * How much longer struggling out alone takes than being freed by an ally. Expressed as a multiplier on
+     * the channel requirement rather than as a fractional per-tick rate, because the counter is an int and
+     * a fractional rate would round to either "never escapes" or "no penalty at all".
+     */
+    private static final double SOLO_CHANNEL_MULTIPLIER = 2.0;
 
     private static final long NOTICE_MS = 4000;
 
@@ -170,14 +181,16 @@ public final class RescueGate implements PhaseMechanic {
                     resolve(false);
                     return;
                 }
-                // Solo captive counts as their own rescuer: with nobody else in the arena there is no
-                // ally who could ever reach them, and the boss stays armored between captures — so
-                // without this the phase would be an unwinnable deadlock for a lone player rather than
-                // a hard fight. In a group the captive alone never counts; someone has to come.
-                boolean alone = Arena.combatants(instance.entity().getLocation(), instance.arena().radius())
-                        .stream().noneMatch(p -> !p.equals(seized));
+                // Solo, the captive is their own rescuer — but they have to struggle for it. With nobody
+                // else in the arena no ally could ever reach them and the boss stays armored between
+                // captures, so a hard two-player requirement here would be an unwinnable deadlock rather
+                // than a hard fight. Requiring the sneak input, at a reduced rate, keeps it a mechanic
+                // they have to actually answer. In a group the captive alone never counts; someone has to
+                // come, and the arithmetic below is unchanged for them.
+                boolean alone = SoloEscape.alone(instance, seized);
                 boolean rescuerPresent = alone
-                        || Arena.combatants(seized.getLocation(), RESCUE_RADIUS).stream()
+                        ? SoloEscape.struggling(seized)
+                        : Arena.combatants(seized.getLocation(), RESCUE_RADIUS).stream()
                                 .anyMatch(p -> !p.equals(seized));
                 if (rescuerPresent) {
                     channelled++;
@@ -186,10 +199,19 @@ public final class RescueGate implements PhaseMechanic {
                                 Color.fromRGB(255, 200, 120), 0.8f, 8, 0.2);
                     }
                 }
-                if (ticks % 10 == 0) {
-                    showProgress(seized, channelled);
+                if (alone && !rescuerPresent && ticks % 20 == 0) {
+                    plugin.actionBarHub().flash(seized, SoloEscape.prompt(), 1200, ActionBarHub.PRIORITY_NOTICE);
                 }
-                if (channelled >= channelTicksNeeded) {
+                // Recomputed each tick rather than fixed at capture, so someone arriving mid-hold
+                // immediately drops the requirement back to the group figure instead of the captive
+                // staying on the solo clock for a rescue that already happened.
+                int needed = alone
+                        ? (int) Math.ceil(channelTicksNeeded * SOLO_CHANNEL_MULTIPLIER)
+                        : channelTicksNeeded;
+                if (ticks % 10 == 0) {
+                    showProgress(seized, channelled, needed);
+                }
+                if (channelled >= needed) {
                     resolve(true);
                     return;
                 }
@@ -217,9 +239,9 @@ public final class RescueGate implements PhaseMechanic {
     }
 
     /** Progress readout for the rescuers, so "keep standing here" has a visible finish line. */
-    private void showProgress(Player seized, int channelled) {
+    private void showProgress(Player seized, int channelled, int needed) {
         int segments = 10;
-        int filled = Math.min(segments, (int) Math.floor(segments * channelled / (double) channelTicksNeeded));
+        int filled = Math.min(segments, (int) Math.floor(segments * channelled / (double) Math.max(1, needed)));
         Component bar = Component.text("Breaking the hold ", NamedTextColor.AQUA)
                 .append(Component.text("▰".repeat(filled), NamedTextColor.WHITE))
                 .append(Component.text("▱".repeat(segments - filled), NamedTextColor.DARK_GRAY));

@@ -42,6 +42,7 @@ abstract class SovereignPhaseMechanic extends TickingMechanic {
 
     @Override
     protected final void onStart() {
+        SovereignSupplies.dropFor(fight);
         onArm();
     }
 
@@ -55,6 +56,7 @@ abstract class SovereignPhaseMechanic extends TickingMechanic {
     protected final void tick() {
         fight.echoTrail().pulse();
         fight.pistons().pulse(PULSE_TICKS);
+        fight.enderPearls().pulse(PULSE_TICKS);
         onPulse(PULSE_TICKS);
 
         int signal = progressSignal();

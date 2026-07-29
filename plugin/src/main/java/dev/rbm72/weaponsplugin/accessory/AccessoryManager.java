@@ -26,7 +26,7 @@ import java.util.UUID;
  */
 public final class AccessoryManager {
 
-    public static final int MAX_SLOTS = 4;
+    public static final int MAX_SLOTS = 5;
     /** Cooldowns can never be reduced past this fraction of their base, no matter how many accessories stack. */
     private static final double MIN_COOLDOWN_MULTIPLIER = 0.25;
 
@@ -57,6 +57,31 @@ public final class AccessoryManager {
             registry.get(id).ifPresent(result::add);
         }
         return result;
+    }
+
+    /**
+     * True if anything the player has equipped negates knockback. The one-question form of
+     * {@link #equipped}, for the callers that only need the answer — the knockback/flinch listener, and
+     * the handful of boss effects that shove a player without going through a damage event at all
+     * (those bypass {@code EntityKnockbackEvent}, so nothing else would ever ask).
+     */
+    public boolean negatesKnockback(Player player) {
+        for (Accessory accessory : equipped(player)) {
+            if (accessory.negatesKnockback()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** True if anything the player has equipped strips the hurt tilt off recurring damage. */
+    public boolean negatesTickFlinch(Player player) {
+        for (Accessory accessory : equipped(player)) {
+            if (accessory.negatesTickFlinch()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** True if the accessory could be added (there is a free slot and it isn't already equipped). */

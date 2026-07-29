@@ -4,6 +4,7 @@ import dev.rbm72.weaponsplugin.boss.BossInstance;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import org.bukkit.entity.Player;
 
 /**
  * <b>P4 — Pandemic.</b> Infection now rises regardless of position and the pyres burn out one by one —
@@ -35,6 +36,15 @@ final class PandemicPhase extends PlaguePhaseMechanic {
         if (snuffCountdown <= 0) {
             snuffCountdown = fight.config().num("pandemic-snuff-interval-ticks", 200);
             fight.pyres().snuffOldest();
+        }
+        // §4.3: "Infection rises on everyone regardless of position." The base meter's only gain source
+        // is proximity to the Warden (see #buildInfectionMeter), which a player who simply keeps their
+        // distance can dodge outright — this flat per-tick add is the phase's own, position-independent
+        // source on top of it.
+        double perSecond = fight.config().dbl("pandemic-passive-gain-per-second", 2.0);
+        double amount = perSecond * (intervalTicks / 20.0);
+        for (Player player : fight.combatants()) {
+            fight.infection().add(player, amount);
         }
     }
 

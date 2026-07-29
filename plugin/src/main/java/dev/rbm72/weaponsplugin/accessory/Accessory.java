@@ -64,6 +64,29 @@ public abstract class Accessory {
         return 1.0;
     }
 
+    /**
+     * True if this accessory cancels knockback applied to its wearer — the shove from a hit, not the
+     * hit itself. The damage still lands unchanged; only the resulting velocity is suppressed.
+     * <p>
+     * The camera jolt is a <em>separate</em> thing riding the damage event, not the knockback, so
+     * suppressing it needs its own pass: {@code AccessoryKnockbackListener} takes it off recurring
+     * environmental ticks for the wearer, and leaves it on real hits on purpose.
+     */
+    public boolean negatesKnockback() {
+        return false;
+    }
+
+    /**
+     * True if this accessory takes the client's hurt tilt off <em>recurring</em> damage for its wearer —
+     * environmental ticks, and anything hitting them repeatedly from the same cause. The health still
+     * comes off, unreduced; only the camera roll goes. A single telegraphed hit keeps its tilt, because
+     * that one is feedback the player wants (and because the vanilla pipeline is also what pays armor
+     * durability and shield wear).
+     */
+    public boolean negatesTickFlinch() {
+        return false;
+    }
+
     /** Fires twice per second for each equipped accessory. Drives passive buffs (e.g. Speed). */
     public void onEquipTick(Player player) {
     }

@@ -10,12 +10,20 @@ import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.entity.AreaEffectCloud;
 import org.bukkit.entity.Player;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 
-/** Drops a lingering toxic cloud on the target: poison + damage over time to anyone standing in it. */
+/**
+ * Drops a lingering toxic cloud on the target: poison + damage over time to anyone standing in it.
+ * <p>
+ * A real {@link AreaEffectCloud} (§0.1 — a real Minecraft object, not particles standing in for one)
+ * carries the poison and the persistent visual; a light tick loop on top applies the attack's own
+ * exactly-configured damage-per-second, since vanilla's instant-damage potion only comes in coarse,
+ * amplifier-sized steps that can't track an arbitrary config value.
+ */
 public final class PoisonCloudAttack extends BossAttack {
 
     private static final Color TOXIC = Color.fromRGB(80, 140, 40);
@@ -55,30 +63,37 @@ public final class PoisonCloudAttack extends BossAttack {
                     Fx.coloredRing(center, TOXIC, 1.4f, radius, 42, 0);
                 },
                 () -> {
+                    if (center.getWorld() == null) {
+                        return;
+                    }
                     BossAudio.play(center, "boss.plague_warden.poison_cloud", Sound.ENTITY_WITCH_THROW, 1.0f, 0.7f);
                     Fx.sound(center, Sound.ENTITY_SLIME_SQUISH, 1.0f, 0.6f);
+
+                    AreaEffectCloud cloud = center.getWorld().spawn(center, AreaEffectCloud.class, entity -> {
+                        entity.setRadius((float) radius);
+                        entity.setDuration(durationTicks);
+                        entity.setReapplicationDelay(20);
+                        entity.addCustomEffect(new PotionEffect(PotionEffectType.POISON, 60, poisonAmplifier), true);
+                        entity.setParticle(Particle.SPORE_BLOSSOM_AIR);
+                        entity.setColor(TOXIC);
+                    });
+                    ctx.instance().trackEntity(cloud);
+
                     new BukkitRunnable() {
                         int ticks = 0;
 
                         @Override
                         public void run() {
-                            if (ticks >= durationTicks || !ctx.boss().isValid()) {
+                            if (ticks >= durationTicks || !ctx.boss().isValid() || !cloud.isValid()) {
                                 cancel();
                                 return;
                             }
-                            if (center.getWorld() != null) {
-                                center.getWorld().spawnParticle(Particle.SPORE_BLOSSOM_AIR, center.clone().add(0, 0.5, 0),
-                                        54, radius * 0.96, 0.64, radius * 0.96, 0.01);
-                            }
-                            Fx.coloredBurst(center.clone().add(0, 0.4, 0), TOXIC, 1.1f, 10, radius * 0.5);
                             if (ticks % 20 == 0) {
                                 double r2 = radius * radius;
                                 for (Player player : ctx.arena().playersInside()) {
                                     if (player.getLocation().distanceSquared(center) <= r2) {
-                                        player.damage(damagePerSecond, ctx.boss());
-                                        player.addPotionEffect(new PotionEffect(PotionEffectType.POISON, 60, poisonAmplifier));
+                                        tickHurt(ctx, player, damagePerSecond);
                                         Fx.coloredBurst(player.getLocation().add(0, 1, 0), SICKLY, 1.0f, 10, 0.3);
-                                        Fx.burst(player.getLocation().add(0, 1, 0), Particle.SPORE_BLOSSOM_AIR, 8, 0.3);
                                         Fx.sound(player.getLocation(), Sound.ENTITY_SLIME_SQUISH, 0.5f, 1.3f);
                                     }
                                 }

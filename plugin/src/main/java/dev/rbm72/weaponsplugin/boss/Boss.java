@@ -72,6 +72,24 @@ public abstract class Boss {
         return BossAmbiance.none();
     }
 
+    /**
+     * Custom sound key (resolves to {@code assets/weaponsplugin/sounds/<key minus the "boss." prefix
+     * replaced with '/'>.ogg} via {@code sounds.json}) that loops as this boss's fight theme, or null
+     * for no theme music. See {@link BossMusic}.
+     */
+    public String themeMusicKey() {
+        return null;
+    }
+
+    /**
+     * The theme track's own length — the loop re-triggers on this exact interval, so it must match the
+     * shipped {@code .ogg}'s real duration or the loop will gap or stutter. Unused (and irrelevant)
+     * unless {@link #themeMusicKey()} is overridden.
+     */
+    public double themeMusicLoopSeconds() {
+        return configDouble("music-loop-seconds", 0.0);
+    }
+
     /** Big title shown to the arena the instant the boss spawns. Empty by default (no title). */
     public Component entranceTitle() {
         return Component.empty();
@@ -88,6 +106,35 @@ public abstract class Boss {
 
     public Component defeatSubtitle() {
         return Component.empty();
+    }
+
+    /**
+     * How many <em>other</em> bosses a player must have cleared at least once before they can enter
+     * this one's realm. 0 (the default) means no gate at all, which is right for everything but the
+     * capstone — see {@link dev.rbm72.weaponsplugin.boss.bosses.Worldender}, which requires the rest of
+     * the roster.
+     * <p>
+     * Counted as distinct bosses beaten, not total kills, and never counting this boss itself: farming
+     * one encounter sixteen times is not the accomplishment the gate is asking for. Enforced at the one
+     * place a player actually enters a fight — {@code RealmManager#enter} — rather than in
+     * {@code BossManager#spawn}, so an admin's {@code /bossspawn} is still an admin's to make.
+     */
+    public int requiredClears() {
+        return configInt("required-clears", 0);
+    }
+
+    /**
+     * Odds each {@link LootTable#guaranteed} entry drops on a <em>pure farm run</em> — every player in
+     * the arena has already cleared this boss at least once. 1.0 restores the old behaviour where the
+     * signature item is certain forever.
+     * <p>
+     * A first clear for anyone present pays in full; only a run where nobody is learning anything gets
+     * the reduced roll. That distinction is the point: with the ledger in place the roster can tell the
+     * two apart, and without the reduction a group's hundredth kill is worth exactly as much as their
+     * first, which is what made repeat clears feel like a treadmill rather than a farm.
+     */
+    public double repeatClearSignatureChance() {
+        return configDouble("repeat-clear-signature-chance", 0.5);
     }
 
     protected final double configDouble(String key, double def) {

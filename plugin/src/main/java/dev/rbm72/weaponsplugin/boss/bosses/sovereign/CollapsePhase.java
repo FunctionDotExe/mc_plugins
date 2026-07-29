@@ -39,7 +39,10 @@ final class CollapsePhase extends SovereignPhaseMechanic {
     protected void onPulse(int intervalTicks) {
         riftCountdown -= intervalTicks;
         if (riftCountdown <= 0 && fight.rifts().opened() < fight.rifts().targetCount() * 3) {
-            riftCountdown = fight.config().num("rift-interval-ticks", 140);
+            // §5.5: "rift rate scales" for a group and sits "at the floor of its range" solo — not just
+            // the eventual total. targetCount() (1 + players/2) already carries that exact per-player
+            // shape, so the opening frequency rides the same number instead of a separate hardcoded knob.
+            riftCountdown = fight.config().num("rift-interval-ticks", 140) / fight.rifts().targetCount();
             double radius = fight.config().dbl("rift-radius", 2.5)
                     + Math.min(3.0, fight.rifts().opened() * 0.2);
             fight.rifts().open(fight.rifts().randomSpot(), radius);
@@ -51,7 +54,9 @@ final class CollapsePhase extends SovereignPhaseMechanic {
         }
         singularityCountdown -= intervalTicks;
         if (singularityCountdown <= 0) {
-            pullTicksLeft = fight.config().num("singularity-pull-ticks", 60);
+            // singularity-pull-ticks/-strength without the infix are SingularityAttack's, and that
+            // attack is in this boss's rotation — the phase's own pull needs its own two keys.
+            pullTicksLeft = fight.config().num("singularity-collapse-pull-ticks", 60);
             instance.showTitle(
                     Component.text("SINGULARITY", NamedTextColor.DARK_PURPLE),
                     Component.text("Run, or anchor behind cover", NamedTextColor.GRAY));
@@ -60,7 +65,7 @@ final class CollapsePhase extends SovereignPhaseMechanic {
 
     private void pull(int intervalTicks) {
         Location centre = instance.arena().center();
-        double pullStrength = fight.config().dbl("singularity-pull-strength", 0.12);
+        double pullStrength = fight.config().dbl("singularity-collapse-pull-strength", 0.12);
         for (Player player : fight.combatants()) {
             Vector inward = centre.toVector().subtract(player.getLocation().toVector()).setY(0);
             if (inward.lengthSquared() > 0.01) {

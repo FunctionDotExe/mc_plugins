@@ -4,6 +4,53 @@ discord:
   webhook-url: ""
   rare-drop-threshold: 0.05
 
+# Per-fight telemetry. Every finished fight is written to
+# plugins/WeaponsPlugin/telemetry/<stamp>-<boss>[-wipe].json, and /bossreport
+# prints the recent ones. This is how a mechanic that nobody ever engages with
+# becomes visible: a phase whose objective times out on every run shows up as a
+# pattern across files, never inside a single fight.
+boss-telemetry:
+  enabled: true
+  # Fights kept in memory for /bossreport (this session only).
+  keep-in-memory: 25
+  # Newest N files kept on disk; 0 keeps everything forever.
+  keep-files: 400
+
+# Boss sound routing. Every boss sound is played under a namespaced key with a
+# vanilla fallback (see BossAudio).
+boss-audio:
+  # ON  = play weaponsplugin:<key>, which only clients that loaded the resource
+  #       pack can hear. Turn this on only once the pack ships the keys —
+  #       /bosstest all followed by /bossaudio dump generates them.
+  # off = play the vanilla fallback sound, i.e. the behaviour before custom
+  #       sounds existed. Safe default: a server not pushing the pack would
+  #       otherwise go silent in every boss fight.
+  custom-sounds: false
+  # Two-note rising wind-up on every attack telegraph, roster-wide. Deliberately
+  # the same pair for all bosses — it is a language, not flavour.
+  telegraph-cues: true
+
+# Stackable difficulty affixes (/bossaffix). Which affixes are armed on which
+# boss lives in modifiers.yml; these are the magnitudes each one runs at.
+boss-modifiers:
+  hard:
+    health-multiplier: 1.5
+    scale-multiplier: 1.15
+    speed-multiplier: 1.2
+  frenzy:
+    # Extra scalar on every attack cooldown, below the normal phase floor.
+    cooldown-multiplier: 0.7
+  double-adds:
+    copies: 2
+  reflect:
+    # Share of your damage dealt straight back to you.
+    fraction: 0.25
+  timer:
+    # Minutes before the boss starts escalating on a clock instead of on health.
+    minutes: 10.0
+    escalation-scale: 1.06
+    escalation-speed: 1.05
+
 # Server-wide combat tunables shared by every weapon (see Weapon.java for the
 # per-weapon override keys, e.g. weapons.<id>.crit-chance, that fall back to
 # these where noted).
@@ -364,10 +411,6 @@ weapons:
     galaxy-explosion-damage: 16.0
     galaxy-explosion-radius: 6.0
 
-# Per-boss tunables. Each key under `bosses.<id>` is read by that boss's
-# definition or one of its attacks — see the class constructors for what
-# they use and the defaults they fall back to if a key is missing.
-
 # Per-consumable tunables. Charges refill on their own — `recharge-seconds` is
 # the real time to regain one spent charge, `use-cooldown-seconds` is the
 # minimum gap between two uses no matter how many charges are banked.
@@ -400,121 +443,2024 @@ consumables:
     heal-fraction: 0.5
     regen-ticks: 120
 
-# Per-stone tunables.
+# Per-stone tunables. Every stone reads `stones.<id>.<key>` live, so a movement
+# perk retunes without a recompile. Values below are the code defaults.
 stones:
+  highstep_stone:
+    amplifier: 1
+
+  swift_stone:
+    amplifier: 1
+
+  tide_stone:
+    grace-amplifier: 1
+
   skyleap_stone:
     # Gap between double jumps. The one-jump-per-airtime rule is the real
     # anti-spam gate; this only stops hopping a leap off every landing.
     cooldown-seconds: 0.9
+    boost-up: 0.85
+    boost-forward: 0.6
 
+  windrunner_stone:
+    max-charges: 2
+    recharge-seconds: 4.0
+    dash-speed: 1.5
+    ground-lift: 0.3
+    air-lift: 0.12
+    # Only long enough to stop one sneak double-tap firing twice; charges are the gate.
+    trigger-lockout-seconds: 0.3
+
+  cliffwalker_stone:
+    # Wall-run length per airtime. Refills on landing, never mid-air, which is
+    # what stops a wall being a ladder.
+    max-stamina-ticks: 40
+    wall-check-range: 1.1
+    run-speed: 0.34
+    catch-kick-up: 0.2
+    catch-ticks: 8
+    cling-fall-speed: -0.06
+    release-kick-out: 0.35
+    release-kick-up: 0.15
+
+  levitation_stone:
+    cooldown-seconds: 20.0
+    levitation-ticks: 100
+    slow-falling-ticks: 140
+
+  rimewalk_stone:
+    # 1 gives a 3x3 pad under the wielder. Every block is temp terrain and
+    # reverts, so a crossing is transport rather than a permanent ice road.
+    radius: 1
+    lifetime-ticks: 60
+    chills-lava: true
+
+  slimebound_stone:
+    trigger-fall-speed: -0.55
+    look-ahead-blocks: 3
+    lifetime-ticks: 40
+
+  pathmaker_stone:
+    # Blocks of empty air below before a step counts as a drop worth bridging.
+    catch-depth: 4
+    lifetime-ticks: 60
+    # The pace of the bridge, and this stone's whole balance lever.
+    max-blocks-per-second: 6
+
+  gustbound_stone:
+    cooldown-seconds: 6.0
+    ground-throw-speed: 0.9
+    air-throw-speed: 1.2
+
+  riftstep_stone:
+    cooldown-seconds: 12.0
+    # Vanilla's own hand-thrown pearl is 1.5; higher flies flatter and further.
+    throw-speed: 1.8
+
+# Operator items. Deliberately not balanced against the weapon roster — these
+# are grants, and `/weaponbalance` never reports on them.
+op-items:
+  ascendant_elixir:
+    duration-ticks: 6000
+    # Vanilla's brewing ceiling for the two that have one (Regeneration II,
+    # Speed II). Resistance sits at IV: amplifier 4 is full damage immunity,
+    # which is a different item and should be asked for on purpose.
+    resistance-amplifier: 3
+    regeneration-amplifier: 1
+    speed-amplifier: 1
+
+  heart_vessel:
+    hearts-per-use: 1
+
+# Bonus hearts, shared by the Heart Vessel and /hearts. The tally on disk is the
+# source of truth; the max-health modifier is rebuilt from it on every join.
+hearts:
+  max-hearts: 20
+
+# Per-boss tunables. Every key under `bosses.<id>` is read live, so `/bossreload`
+# retunes a fight already in progress. Values below are the code defaults —
+# deleting a key just falls back to the same number.
+#
+# These framework keys are valid in any boss section too, and are left out below
+# because their defaults suit every boss: `meters` (true), `meter-tick-interval` (5),
+# `meter-channel` (auto), `meter-bar-stack-limit` (2), `max-ledger-blocks` (120000),
+# `restore-blocks-per-tick` (4000), `pit-depth` (6.0), `pit-damage-fraction` (0.55),
+# `max-explosion-power` (4.0), `max-crater-radius` (6.0), `max-falling-blocks` (24),
+# `max-particles-per-tick` (400), `phase-cooldown-progress-cut` (0.45),
+# `phase-cooldown-enrage-cut` (0.85), `phase-cooldown-floor` (0.45),
+# `worldguard-protection` (false). Individual meters take overrides at
+# `bosses.<id>.meter.<meter>.{heal-cap-per-second,heal-cap-burst-seconds,heal-converted-per-health}`,
+# whose defaults come from each meter's own skin.
+#
+# One caution on `worldguard-protection`: setting it true adds a build-denied region
+# over the arena, and most of the roster's objectives are things the group *builds* —
+# jamming the Weeping Colossus's walls, scaffolding up the Solar Colossus, pouring
+# buckets at the Inferno Warlord, walling off the Necro Overlord's lanes. Denying
+# building there leaves those phases with nothing but the floor-lock timeout.
 bosses:
-  fallen_king:
+
+  # ---------------------------------------------------------- Amalgamated Bulk
+  amalgamated_bulk:
     max-health: 300.0
-    arena-radius: 54.0
+    arena-radius: 36.0
+    phase-floor-timeout-ms: 180000
 
     loot-armor-chance: 0.35
     loot-materials-chance: 0.6
     loot-cosmetic-chance: 0.008
 
-    heavy-swing-damage: 9.0
-    heavy-swing-range: 3.5
-    heavy-swing-telegraph-ticks: 14
-    heavy-swing-cooldown-seconds: 3.0
+    # AcidSprayAttack
+    acid-spray-angle-degrees: 45.0
+    acid-spray-cooldown-seconds: 9.0
+    acid-spray-damage: 6.0
+    acid-spray-poison-ticks: 60
+    acid-spray-range: 6.0
+    acid-spray-telegraph-ticks: 16
 
-    triple-combo-damage-per-hit: 5.0
-    triple-combo-range: 3.0
-    triple-combo-telegraph-ticks: 10
-    triple-combo-cooldown-seconds: 6.0
+    # EngulfAttack
+    engulf-cooldown-seconds: 14.0
+    engulf-damage: 11.0
+    engulf-engulf-ticks: 30
+    engulf-pull-range: 6.0
+    engulf-telegraph-ticks: 16
+    engulf-weakness-ticks: 80
 
-    dash-slash-damage: 8.0
-    dash-slash-speed: 1.7
-    dash-slash-hit-radius: 1.8
-    dash-slash-dash-ticks: 10
-    dash-slash-telegraph-ticks: 14
-    dash-slash-cooldown-seconds: 7.0
+    # OozeSlamAttack
+    ooze-slam-air-ticks: 10
+    ooze-slam-cooldown-seconds: 8.0
+    ooze-slam-damage: 8.0
+    ooze-slam-radius: 4.5
+    ooze-slam-slowness-ticks: 70
+    ooze-slam-telegraph-ticks: 14
 
-    shockwave-slam-damage: 10.0
-    shockwave-slam-radius: 5.0
-    shockwave-slam-knockup: 0.7
-    shockwave-slam-telegraph-ticks: 16
-    shockwave-slam-cooldown-seconds: 9.0
+    # Fight systems (boss/bosses/bulk)
+    bulkling-health: 18.0
+    bulkling-shed-interval-ticks: 140
+    bulkling-size: 2
+    catalyst-health: 60.0
+    catalyst-lifetime-ticks: 24000
+    catalyst-placement-fraction: 0.55
+    catalyst-radius: 8.0
+    feed-coverage-threshold: 0.2
+    feed-heal-per-second: 3.0
+    reabsorb-arrive-distance: 2.5
+    reabsorb-heal: 30.0
+    reabsorb-interval-ticks: 220
+    reabsorb-pull-strength: 0.22
+    reabsorb-retry-ticks: 60
+    reabsorb-telegraph-ticks: 50
+    reabsorption-denials: 3
+    sculk-blocks-per-death: 14
+    sculk-bloom-radius: 3.0
+    sculk-capacity-fraction: 0.25
+    sculk-slowness-amplifier: 1
+    shedding-clean-kills: 5
+    shrieker-coverage-threshold: 0.35
+    shrieker-darkness-ticks: 120
+    shrieker-health: 30.0
+    shrieker-interval-ticks: 200
+    shrieker-lifetime-ticks: 12000
+    shrieker-max: 4
+    shrieker-range: 12.0
+    spread-clear-threshold: 0.15
+    supply-food-per-player: 4
+    supply-hoes-per-player: 1
+    supply-milk-per-player: 1
 
-    summon-royal-guards-count: 2
-    summon-royal-guards-max-adds: 4
-    summon-royal-guards-telegraph-ticks: 20
-    summon-royal-guards-cooldown-seconds: 18.0
+    # Party-scaled in code — listed for reference only. Setting one pins it to a
+    # fixed value for every group size, which is usually not what you want.
+    # bulkling-cap:   # code default: 3 + fight.playerCount()
+    # catalyst-count:   # code default: 2 + fight.playerCount() / 2
 
+  # ---------------------------------------------------------- Dragon Elder
+  dragon_elder:
+    max-health: 400.0
+    arena-radius: 36.0
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # FireballBarrageAttack
+    fireball-barrage-cooldown-seconds: 9.0
+    fireball-barrage-damage: 8.0
+    fireball-barrage-impact-power: 2.0
+    fireball-barrage-projectiles: 4
+    fireball-barrage-telegraph-ticks: 18
+
+    # FirestormBreathAttack
+    firestorm-breath-angle-degrees: 70.0
+    firestorm-breath-cooldown-seconds: 11.0
+    firestorm-breath-damage: 10.0
+    firestorm-breath-fire-ticks: 100
+    firestorm-breath-range: 9.0
+    firestorm-breath-telegraph-ticks: 20
+
+    # GrabAndDropAttack
+    grab-and-drop-cooldown-seconds: 13.0
+    grab-and-drop-damage: 10.0
+    grab-and-drop-fire-ticks: 80
+    grab-and-drop-levitation-amplifier: 4
+    grab-and-drop-lift-ticks: 40
+    grab-and-drop-telegraph-ticks: 18
+
+    # MeteorWingsAttack
+    meteor-wings-cooldown-seconds: 14.0
+    meteor-wings-damage: 9.0
+    meteor-wings-drop-interval: 8
+    meteor-wings-fire-ticks: 80
+    meteor-wings-height: 18.0
+    meteor-wings-impact-power: 2.5
+    meteor-wings-meteors: 5
+    meteor-wings-telegraph-ticks: 22
+
+    # TailSweepAttack
+    tail-sweep-angle-degrees: 120.0
+    tail-sweep-cooldown-seconds: 8.0
+    tail-sweep-damage: 12.0
+    tail-sweep-knockback: 1.2
+    tail-sweep-range: 6.0
+    tail-sweep-telegraph-ticks: 16
+
+    # WingGustAttack
+    wing-gust-cooldown-seconds: 10.0
+    wing-gust-damage: 7.0
+    wing-gust-launch: 1.0
+    wing-gust-radius: 6.0
+    wing-gust-slow-amplifier: 1
+    wing-gust-slow-ticks: 60
+    wing-gust-telegraph-ticks: 16
+
+    # Fight systems (boss/bosses/dragon)
+    approach-max-speed: 0.85
+    approach-nudge-strength: 0.14
+    circle-angular-speed: 0.011
+    circle-height: 11.0
+    circle-max-speed: 0.85
+    circle-nudge-strength: 0.10
+    circle-radius-fraction: 0.55
+    circling-fireball-interval-ticks: 90
+    circling-tutorial-delay-ticks: 340
+    divebomb-fireball-interval-ticks: 65
+    fireball-burn-ticks: 60
+    fireball-deflect-damage: 24.0
+    fireball-deflect-speed: 1.7
+    fireball-impact-damage: 14.0
+    fireball-impact-power: 1.6
+    fireball-impact-radius: 3.2
+    fireball-interval-reduction-per-player: 8
+    fireball-speed: 1.15
+    grounded-fire-field-duration-ticks: 100
+    grounded-fire-field-interval-ticks: 100
+    grounded-fire-field-radius: 3.5
+    membrane-forced-window-ticks: 100
+    membrane-max-hp-per-player: 55.0
+    membrane-regen-delay-seconds: 4.0
+    membrane-regen-per-second: 2.5
+    perch-approach-timeout-ticks: 260
+    perch-arrival-distance: 2.6
+    perch-cycle-ticks: 220
+    perch-fireball-interval-ticks: 75
+    perch-first-approach-delay-ticks: 100
+    perch-grounded-window-ticks: 110
+    perch-heal-fraction: 0.07
+    pillar-count: 4
+    pillar-fraction: 0.7
+    pillar-height: 6
+    pillar-hit-damage: 5.0
+    pillar-max-hp: 45.0
+    strafe-altitude: 5.0
+    strafe-arrival-distance: 3.0
+    strafe-burn-ticks: 50
+    strafe-cover-radius: 2.5
+    strafe-cycle-ticks: 140
+    strafe-damage: 16.0
+    strafe-fire-duration-ticks: 200
+    strafe-half-width: 3.0
+    strafe-speed: 1.6
+    strafe-telegraph-ticks: 50
+    strafe-timeout-ticks: 100
+    supply-arrows-per-player: 24
+    supply-bows-per-player: 1
+    supply-solo-bonus-multiplier: 2.0
+
+  # ---------------------------------------------------------- Fallen King
+  fallen_king:
+    max-health: 300.0
+    arena-radius: 54.0
+    phase-floor-timeout-ms: 180000
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # BlackSwordRainAttack
+    black-sword-rain-cooldown-seconds: 11.0
+    black-sword-rain-damage: 8.0
+    black-sword-rain-impact-count: 6
+    black-sword-rain-impact-radius: 2.2
+    black-sword-rain-telegraph-ticks: 22
+
+    # DarkExplosionAttack
+    dark-explosion-cooldown-seconds: 10.0
+    dark-explosion-damage: 10.0
+    dark-explosion-power: 3.0
+    dark-explosion-radius: 5.0
+    dark-explosion-telegraph-ticks: 18
+
+    # EnrageSlashAttack
+    enrage-slash-cooldown-seconds: 14.0
+    enrage-slash-damage: 8.0
+    enrage-slash-safe-zone-count: 3
+    enrage-slash-safe-zone-radius: 2.2
+    enrage-slash-telegraph-ticks: 30
+
+    # GroundFissureAttack
+    ground-fissure-cooldown-seconds: 8.0
+    ground-fissure-damage: 6.0
+    ground-fissure-range: 8.0
+    ground-fissure-slow-ticks: 60
+    ground-fissure-telegraph-ticks: 18
+    ground-fissure-width: 1.5
+
+    # JumpSlamAttack
+    jump-slam-air-ticks: 14
+    jump-slam-cooldown-seconds: 10.0
+    jump-slam-damage: 11.0
+    jump-slam-knockup: 0.8
+    jump-slam-radius: 4.5
+    jump-slam-telegraph-ticks: 16
+
+    # SiegeHurlAttack
+    siege-hurl-cooldown-seconds: 11.0
+    siege-hurl-damage: 9.0
+    siege-hurl-impact-power: 2.0
+    siege-hurl-projectiles: 3
+    siege-hurl-telegraph-ticks: 18
+
+    # SpinningSlashAttack
+    spinning-slash-cooldown-seconds: 8.0
     spinning-slash-damage: 9.0
     spinning-slash-radius: 5.5
     spinning-slash-telegraph-ticks: 16
-    spinning-slash-cooldown-seconds: 8.0
 
-    sword-rain-damage: 7.0
-    sword-rain-impact-radius: 2.0
-    sword-rain-impact-count: 4
-    sword-rain-telegraph-ticks: 20
+    # SwordRainAttack
     sword-rain-cooldown-seconds: 9.0
+    sword-rain-damage: 7.0
+    sword-rain-impact-count: 4
+    sword-rain-impact-radius: 2.0
+    sword-rain-telegraph-ticks: 20
 
-    ground-fissure-damage: 6.0
-    ground-fissure-range: 8.0
-    ground-fissure-width: 1.5
-    ground-fissure-slow-ticks: 60
-    ground-fissure-telegraph-ticks: 18
-    ground-fissure-cooldown-seconds: 8.0
-
-    jump-slam-damage: 11.0
-    jump-slam-radius: 4.5
-    jump-slam-knockup: 0.8
-    jump-slam-telegraph-ticks: 16
-    jump-slam-air-ticks: 14
-    jump-slam-cooldown-seconds: 10.0
-
-    binding-sigils-count: 3
-    binding-sigils-health: 26.0
-    binding-sigils-channel-ticks: 140
-    binding-sigils-pool-damage: 3.0
-    binding-sigils-pool-radius: 2.5
-    binding-sigils-empower-damage-bonus: 4.0
-    binding-sigils-empower-duration-ticks: 400
-    binding-sigils-stagger-duration-ticks: 60
-    binding-sigils-telegraph-ticks: 22
-    binding-sigils-cooldown-seconds: 28.0
-
-    enrage-slash-safe-zone-radius: 2.2
-    enrage-slash-safe-zone-count: 3
-
-    black-sword-rain-damage: 8.0
-    black-sword-rain-impact-radius: 2.2
-    black-sword-rain-impact-count: 6
-    black-sword-rain-telegraph-ticks: 22
-    black-sword-rain-cooldown-seconds: 11.0
-
-    dark-explosion-damage: 10.0
-    dark-explosion-radius: 5.0
-    dark-explosion-telegraph-ticks: 18
-    dark-explosion-cooldown-seconds: 10.0
-
+    # TeleportStrikeAttack
+    teleport-strike-cooldown-seconds: 9.0
     teleport-strike-damage: 9.0
     teleport-strike-range: 2.5
     teleport-strike-telegraph-ticks: 14
-    teleport-strike-cooldown-seconds: 9.0
 
-    enrage-slash-damage: 8.0
-    enrage-slash-telegraph-ticks: 30
-    enrage-slash-cooldown-seconds: 14.0
+    # Fight systems (boss/bosses/king)
+    bell-cooldown-ticks: 100
+    bell-stagger-ticks: 60
+    bell-stagger-ticks-solo: 110
+    chain-duration-ticks: 200
+    cleave-crater-radius: 1.8
+    cleave-damage: 11.0
+    cleave-half-width: 1.8
+    cleave-range: 7.0
+    cleave-telegraph-ticks: 26
+    court-solo-ripostes: 2
+    dais-fraction: 0.66
+    duel-combo-gap-ticks: 30
+    duel-engagement-range: 9.0
+    duel-neglect-heal: 6.0
+    duel-neglect-ms: 12000
+    duel-outsider-fraction: 0.10
+    duel-riposte-multiplier: 2.2
+    duel-riposte-ticks: 20
+    execution-block-half-width: 1.3
+    execution-blocked-damage: 14.0
+    execution-collide-stagger-ticks: 80
+    execution-damage-fraction: 0.7
+    execution-first-delay-ticks: 120
+    execution-interval-ticks: 200
+    execution-windup-ticks: 50
+    judgment-base-anvils: 2
+    judgment-damage: 22.0
+    judgment-drop-height: 14.0
+    judgment-interval-ticks: 130
+    judgment-radius: 1.6
+    judgment-telegraph-ticks: 30
+    knight-arrival-fraction: 0.9
+    knight-arrival-ticks: 90
+    knight-base-count: 2
+    knight-chain-delay-ticks: 300
+    knight-chain-interval-ticks: 300
+    knight-health: 40.0
+    knight-max-live: 6
+    oath-front-arc-degrees: 150.0
+    oath-front-fraction: 0.05
+    oath-rear-multiplier: 1.35
+    oath-rings-required: 2
+    shard-count: 3
+    shard-scatter-fraction: 0.7
+    shard-seat-radius: 3.0
+    shard-slowness-amplifier: 2
+    supply-blocks-per-player: 24
+    supply-food-per-player: 8
+    supply-pickaxes-per-player: 1
+    supply-shields-per-player: 1
+    sweep-damage: 8.0
+    sweep-inner-radius: 1.6
+    sweep-radius: 4.5
+    sweep-telegraph-ticks: 20
+    thrust-bleed-ticks: 90
+    thrust-damage: 15.0
+    thrust-half-width: 1.0
+    thrust-range: 9.0
+    thrust-telegraph-ticks: 30
 
-    hazard-damage: 6.0
-    hazard-radius: 4.0
-    hazard-telegraph-ticks: 24
-    hazard-block-count: 5
-    hazard-drop-height: 12.0
-    hazard-cooldown-seconds: 12.0
+    # Party-scaled in code — listed for reference only. Setting one pins it to a
+    # fixed value for every group size, which is usually not what you want.
+    # shard-reflect-fraction:   # code default: fight.playerCount() <= 1 ? 0.18 : 0.35
 
+  # ---------------------------------------------------------- Frost Queen
+  frost_queen:
+    max-health: 300.0
+    arena-radius: 36.0
+    phase-floor-timeout-ms: 180000
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # AbsoluteZeroAttack
+    absolute-zero-cooldown-seconds: 22.0
+    absolute-zero-crater-radius: 4.0
+    absolute-zero-damage: 16.0
+    absolute-zero-radius: 12.0
+    absolute-zero-slow-amplifier: 5
+    absolute-zero-slow-ticks: 60
+    absolute-zero-telegraph-ticks: 24
+
+    # AfflictionAttack
+    affliction-cooldown-seconds: 26.0
+    affliction-duration-ticks: 120
+    affliction-max-stacks: 5
+    affliction-radius: 8.0
+    affliction-telegraph-ticks: 24
+    affliction-tick-damage: 1.5
+    affliction-tick-interval-ticks: 20
+
+    # AvalancheAttack
+    avalanche-cooldown-seconds: 12.0
+    avalanche-damage: 6.0
+    avalanche-impact-power: 1.5
+    avalanche-projectiles: 5
+    avalanche-telegraph-ticks: 18
+
+    # BlizzardAttack
+    blizzard-cooldown-seconds: 20.0
+    blizzard-damage-per-hit: 3.0
+    blizzard-duration-ticks: 140
+    blizzard-revolutions: 2.5
+    blizzard-sector-width-degrees: 40.0
+    blizzard-slow-amplifier: 1
+    blizzard-telegraph-ticks: 20
+
+    # ChillingTouchAttack
+    chilling-touch-cooldown-seconds: 8.0
+    chilling-touch-damage: 10.0
+    chilling-touch-dash-ticks: 10
+    chilling-touch-hit-radius: 1.9
+    chilling-touch-slow-amplifier: 2
+    chilling-touch-slow-ticks: 60
+    chilling-touch-speed: 1.6
+    chilling-touch-telegraph-ticks: 14
+
+    # FrostArmorAttack
+    frost-armor-absorption-amplifier: 2
+    frost-armor-absorption-ticks: 120
+    frost-armor-cooldown-seconds: 18.0
+    frost-armor-telegraph-ticks: 16
+
+    # FrostNovaAttack
+    frost-nova-cooldown-seconds: 9.0
+    frost-nova-damage: 9.0
+    frost-nova-radius: 5.5
+    frost-nova-slow-amplifier: 1
+    frost-nova-slow-ticks: 80
+    frost-nova-telegraph-ticks: 16
+
+    # FrozenPrisonAttack
+    frozen-prison-cooldown-seconds: 12.0
+    frozen-prison-damage: 6.0
+    frozen-prison-duration-ticks: 40
+    frozen-prison-height: 3
+    frozen-prison-ring-columns: 8
+    frozen-prison-slow-amplifier: 4
+    frozen-prison-slow-ticks: 40
+    frozen-prison-telegraph-ticks: 16
+
+    # GlacierSpikesAttack
+    glacier-spikes-cooldown-seconds: 11.0
+    glacier-spikes-count: 4
+    glacier-spikes-damage: 8.0
+    glacier-spikes-duration-ticks: 100
+    glacier-spikes-height: 3
+    glacier-spikes-spread: 2.5
+    glacier-spikes-telegraph-ticks: 18
+
+    # IceLanceAttack
+    ice-lance-cooldown-seconds: 8.0
+    ice-lance-damage: 7.0
+    ice-lance-impact-power: 0.0
+    ice-lance-projectiles: 3
+    ice-lance-telegraph-ticks: 16
+
+    # Fight systems (boss/bosses/frost)
+    absolute-zero-chill-spike: 70.0
+    absolute-zero-first-delay-ticks: 100
+    absolute-zero-interval-ticks: 140
+    absolute-zero-pulse-damage: 8.0
+    absolute-zero-safe-radius: 4.0
+    avalanche-band-width: 5.0
+    avalanche-drop-interval-ms: 500
+    avalanche-speed-blocks-per-second: 2.2
+    avalanche-wall-damage: 7.0
+    campfire-count: 4
+    campfire-fraction: 0.55
+    chill-threshold-cooldown-seconds: 8.0
+    heart-carrier-chill-cure: 30.0
+    heart-carry-radius: 3.0
+    heart-drain-per-second: 6.0
+    heart-max-hp: 60.0
+    heart-regen-per-second: 2.5
+    ice-field-growth-per-second: 0.12
+    ice-field-max-fraction: 0.85
+    prison-bleed-per-second: 1.6
+    prison-height: 2
+    prison-hold-ticks: 100
+    supply-boots-per-player: 1
+    supply-flint-and-steel-per-player: 1
+    supply-torches-per-player: 2
+
+    # Party-scaled in code — listed for reference only. Setting one pins it to a
+    # fixed value for every group size, which is usually not what you want.
+    # prison-ring-columns:   # code default: solo ? 5 : 8
+
+  # ---------------------------------------------------------- Grafted Horror
+  grafted_horror:
+    max-health: 300.0
+    arena-radius: 36.0
+    phase-floor-timeout-ms: 180000
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # FrenziedGraftAttack
+    frenzied-graft-add-health: 20.0
+    frenzied-graft-cooldown-seconds: 32.0
+    frenzied-graft-damage-per-blink: 6.0
+    frenzied-graft-debuff-ticks: 60
+    frenzied-graft-range: 2.8
+    frenzied-graft-telegraph-ticks: 22
+
+    # RendingClawAttack
+    rending-claw-cooldown-seconds: 5.0
+    rending-claw-damage: 8.0
+    rending-claw-range: 3.5
+    rending-claw-telegraph-ticks: 12
+    rending-claw-weakness-ticks: 60
+
+    # Fight systems (boss/bosses/graft)
+    dispenser-arrow-damage: 5.0
+    dispenser-arrow-speed: 2.2
+    dispenser-fire-charge-chance: 0.3
+    dispenser-interval-ticks: 70
+    dispenser-max-volley: 6
+    dispenser-volley: 2
+    graft-angle-offset-radians: 0.4
+    graft-first-delay-ticks: 60
+    graft-power-fraction: 0.95
+    graft-repeater-delay: 2
+    graft-socket-fraction: 0.45
+    observer-arc-degrees: 55.0
+    observer-idle-ticks: 40
+    observer-move-threshold: 0.6
+    observer-range: 20.0
+    observer-retaliation-cooldown-ticks: 60
+    observer-retaliation-volley: 4
+    piston-count: 4
+    piston-damage: 4.0
+    piston-extended-ticks: 14
+    piston-fraction: 0.32
+    piston-interval-ticks: 90
+    repair-graft-bonus-ticks: 10
+    repair-tick-ticks: 40
+    repair-window-ticks: 200
+    supply-blocks-per-player: 16
+    supply-pickaxes-per-player: 1
+    supply-shields-per-player: 1
+    turret-first-delay-ticks: 40
+
+    # Party-scaled in code — listed for reference only. Setting one pins it to a
+    # fixed value for every group size, which is usually not what you want.
+    # graft-severed-ticks:   # code default: graft.kind == Kind.REPAIR ? 200 : 160
+
+  # ---------------------------------------------------------- Hollow Choir
+  hollow_choir:
+    max-health: 300.0
+    arena-radius: 36.0
+    phase-floor-timeout-ms: 180000
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # SpectralHoundsAttack
+    spectral-hounds-add-health: 16.0
+    spectral-hounds-cooldown-seconds: 18.0
+    spectral-hounds-count: 2
+    spectral-hounds-speed-multiplier: 1.6
+    spectral-hounds-telegraph-ticks: 16
+
+    # Fight systems (boss/bosses/choir)
+    all-voices-interval-ticks: 60
+    bell-count: 2
+    darkness-first-delay-ticks: 100
+    darkness-interval-ticks: 360
+    darkness-ticks: 160
+    fang-damage: 11.0
+    fang-interval-ticks: 120
+    illusion-count: 3
+    instrument-placement-fraction: 0.8
+    misdirect-clear-radius: 6.0
+    noise-bell: 2.5
+    noise-illusion-hit: 1.6
+    noise-melee: 1.0
+    noise-memory-ticks: 120
+    noise-note-block: 2.0
+    noise-ranged: 0.8
+    note-block-count: 6
+    phrase-note-ticks: 16
+    phrase-rest-ticks: 60
+    phrase-wrong-damage: 8.0
+    phrase-wrong-radius: 4.0
+    supply-food-per-player: 4
+    supply-lanterns-per-player: 2
+    supply-torches-per-player: 8
+    vex-interval-ticks: 300
+    vex-swarm-max: 6
+    vex-swarm-size: 2
+    wail-damage: 14.0
+    wail-interval-ticks: 180
+    wail-width: 2.0
+
+  # ---------------------------------------------------------- Inferno Warlord
+  inferno_warlord:
+    max-health: 300.0
+    arena-radius: 36.0
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # CinderNovaAttack
+    cinder-nova-cooldown-seconds: 10.0
+    cinder-nova-damage: 10.0
+    cinder-nova-explosion-power: 1.4
+    cinder-nova-fire-ticks: 80
+    cinder-nova-radius: 6.0
+    cinder-nova-telegraph-ticks: 18
+
+    # EruptionAttack
+    eruption-cooldown-seconds: 11.0
+    eruption-crater-radius: 3.0
+    eruption-damage: 12.0
+    eruption-fire-ticks: 80
+    eruption-launch-up: 0.9
+    eruption-radius: 5.0
+    eruption-telegraph-ticks: 20
+
+    # FireTrailAttack
+    fire-trail-cooldown-seconds: 8.0
+    fire-trail-damage: 8.0
+    fire-trail-dash-ticks: 12
+    fire-trail-fire-ticks: 80
+    fire-trail-hit-radius: 1.9
+    fire-trail-speed: 1.6
+    fire-trail-telegraph-ticks: 14
+
+    # FirestormAttack
+    firestorm-barrage-ticks: 40
+    firestorm-cooldown-seconds: 24.0
+    firestorm-damage: 10.0
+    firestorm-drop-interval: 5
+    firestorm-fire-ticks: 80
+    firestorm-height: 20.0
+    firestorm-impact-power: 3.0
+    firestorm-telegraph-ticks: 24
+
+    # FlameBreathAttack
+    flame-breath-angle-degrees: 60.0
+    flame-breath-cooldown-seconds: 9.0
+    flame-breath-damage: 9.0
+    flame-breath-fire-ticks: 80
+    flame-breath-range: 7.0
+    flame-breath-telegraph-ticks: 18
+
+    # LavaWaveAttack
+    lava-wave-cooldown-seconds: 12.0
+    lava-wave-damage: 11.0
+    lava-wave-fire-ticks: 80
+    lava-wave-speed: 0.9
+    lava-wave-telegraph-ticks: 20
+    lava-wave-ticks: 30
+    lava-wave-width: 3.0
+
+    # MagmaThrowAttack
+    magma-throw-cooldown-seconds: 8.0
+    magma-throw-damage: 10.0
+    magma-throw-impact-power: 3.0
+    magma-throw-projectiles: 2
+    magma-throw-telegraph-ticks: 18
+
+    # MeteorRainAttack
+    meteor-rain-cooldown-seconds: 12.0
+    meteor-rain-damage: 10.0
+    meteor-rain-height: 20.0
+    meteor-rain-impact-power: 3.0
+    meteor-rain-meteors: 5
+    meteor-rain-spread: 5.0
+    meteor-rain-telegraph-ticks: 22
+
+    # MoltenOverloadAttack
+    molten-overload-cooldown-seconds: 48.0
+    molten-overload-duration-ticks: 140
+    molten-overload-exposed-multiplier: 2.2
+    molten-overload-exposed-ticks: 110
+    molten-overload-pulse-damage: 4.0
+    molten-overload-pulse-radius: 4.5
+    molten-overload-required-damage: 160.0
+    molten-overload-stagger-ticks: 70
+    molten-overload-stoke-interval-ticks: 20
+    molten-overload-stoke-scale: 1.04
+    molten-overload-stoke-speed: 1.04
+    molten-overload-telegraph-ticks: 30
+
+    # Fight systems (boss/bosses/inferno)
+    burning-ally-douse-cure-amount: 70.0
+    burning-cauldron-radius: 2.4
+    burning-cure-cauldron-per-second: 35.0
+    burning-cure-water-per-second: 45.0
+    burning-damage-per-second-at-max: 6.0
+    burning-fire-gain-per-second: 10.0
+    cauldron-count: 3
+    cauldron-fraction: 0.82
+    cauldron-refill-interval-seconds: 7.0
+    cauldron-refill-interval-seconds-solo: 4.0
+    cinder-nova-burning-add: 25.0
+    cinder-nova-idle-damage: 15.0
+    cinder-nova-idle-seconds: 12.0
+    cinder-nova-idle-telegraph-ticks: 42
+    heat-aura-gain-per-second: 7.0
+    heat-aura-radius: 4.0
+    lava-rim-fraction: 0.98
+    lava-tier-count: 5
+    lava-tier-floor-fraction: 0.22
+    lava-tier-interval-seconds: 24.0
+    lava-warn-ticks: 60
+    logs-burning-add: 18.0
+    logs-damage: 9.0
+    logs-drop-height: 16.0
+    logs-interval-seconds: 15.0
+    logs-radius: 2.3
+    logs-telegraph-ticks: 34
+    magma-throw-burning-add: 20.0
+    magma-throw-drop-height: 12.0
+    magma-throw-hazard-damage: 12.0
+    magma-throw-hazard-telegraph-ticks: 32
+    magma-throw-interval-seconds: 11.0
+    magma-throw-radius: 2.2
+    meltdown-keep-fraction: 0.08
+    supply-buckets-base: 2
+    supply-buckets-per-player: 1
+    tnt-cluster-count-max: 5
+    tnt-cluster-count-solo: 3
+    tnt-cluster-fraction: 0.5
+    tnt-cluster-height: 3
+    tnt-clusters-required: 3
+    tnt-detonate-burning-add: 30.0
+    tnt-detonate-damage: 20.0
+    tnt-detonate-power: 2.6
+    tnt-detonate-radius: 5.0
+    tnt-douse-radius: 2.6
+    tnt-fuse-burning-add: 8.0
+    tnt-fuse-damage: 2.0
+    tnt-fuse-fire-ticks: 40
+    tnt-fuse-step-ticks: 9
+    tnt-respawn-delay-ticks: 160
+    tnt-wall-off-radius: 2.4
+    trail-burning-add: 14.0
+    trail-damage: 3.0
+    trail-fire-ticks: 60
+    trail-respawn-delay-ticks: 100
+    trail-step-ticks: 10
+
+  # ---------------------------------------------------------- Necro Overlord
+  necro_overlord:
+    max-health: 300.0
+    arena-radius: 36.0
+    phase-floor-timeout-ms: 180000
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # ArmyOfTheDeadAttack
+    army-of-the-dead-cooldown-seconds: 20.0
+    army-of-the-dead-count: 6
+    army-of-the-dead-damage: 12.0
+    army-of-the-dead-max-adds: 30
+    army-of-the-dead-radius: 6.0
+    army-of-the-dead-telegraph-ticks: 22
+    army-of-the-dead-wither-radius: 14.0
+    army-of-the-dead-wither-ticks: 100
+
+    # BoneSpikesAttack
+    bone-spikes-cooldown-seconds: 10.0
+    bone-spikes-damage: 9.0
+    bone-spikes-hit-radius: 5.0
+    bone-spikes-telegraph-ticks: 18
+
+    # DeathBoltAttack
+    death-bolt-cooldown-seconds: 8.0
+    death-bolt-damage: 8.0
+    death-bolt-impact-power: 1.0
+    death-bolt-telegraph-ticks: 16
+    death-bolt-wither-ticks: 80
+
+    # GraveGraspAttack
+    grave-grasp-cooldown-seconds: 10.0
+    grave-grasp-damage: 7.0
+    grave-grasp-radius: 2.6
+    grave-grasp-root-ticks: 50
+    grave-grasp-telegraph-ticks: 24
+
+    # SoulDrainAttack
+    soul-drain-channel-ticks: 120
+    soul-drain-cooldown-seconds: 16.0
+    soul-drain-heal-per-tether-per-second: 4.0
+    soul-drain-max-tethers: 5
+    soul-drain-pull-strength: 0.35
+    soul-drain-radius: 12.0
+    soul-drain-telegraph-ticks: 30
+
+    # WitherCloudAttack
+    wither-cloud-cooldown-seconds: 13.0
+    wither-cloud-duration-ticks: 200
+    wither-cloud-max-clouds: 3
+    wither-cloud-radius: 4.0
+    wither-cloud-telegraph-ticks: 24
+    wither-cloud-wither-amplifier: 1
+
+    # Fight systems (boss/bosses/necro)
+    artificial-sun-burn-ticks: 200
+    artificial-sun-interval-ticks: 60
+    back-line-cooldown-ticks: 120
+    back-line-pressure-range: 8.0
+    back-line-radius-fraction: 0.8
+    corpse-floor-clear-threshold: 2
+    corpse-floor-clear-threshold-per-extra-player: 1
+    corpse-floor-minimum-buried: 8
+    corpse-floor-minimum-buried-per-extra-player: 4
+    corpse-max-piles: 40
+    corpse-rise-multiplier-reanimation: 1.6
+    corpse-rise-retry-ticks: 40
+    corpse-rise-ticks: 320
+    corpse-rise-warning-ticks: 40
+    daylight-time: 6000
+    grave-health: 60.0
+    grave-lifetime-ticks: 24000
+    grave-max-live: 3
+    grave-plant-telegraph-ticks: 40
+    grave-ring-radius-fraction: 0.62
+    grave-spawn-interval-ticks: 140
+    graves-to-advance: 2
+    horde-max-alive: 20
+    night-time: 18000
+    shroud-anchor-health: 45.0
+    shroud-anchor-lifetime-ticks: 24000
+    shroud-anchor-ring-fraction: 0.5
+    shroud-anchors-grouped: 4
+    shroud-anchors-solo: 2
+    shroud-breaks-to-advance: 1
+    shroud-coverage-fraction: 0.85
+    shroud-height: 14
+    shroud-rebuild-delay-ticks: 600
+    supply-arrows-per-player: 32
+    supply-blocks-per-player: 32
+    supply-bows-per-player: 1
+    supply-pickaxes-per-player: 1
+    supply-scaffolding-per-player: 16
+    wave-base-size: 4
+    wave-interval-ticks: 200
+    wave-lane-radius-fraction: 0.92
+    wave-lanes-grouped: 4
+    wave-lanes-solo: 2
+    wave-size-per-extra-player: 2
+    wave-telegraph-ticks: 40
+
+  # ---------------------------------------------------------- Plague Warden
+  plague_warden:
+    max-health: 300.0
+    arena-radius: 36.0
+    phase-floor-timeout-ms: 180000
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # AfflictionAttack
+    affliction-cooldown-seconds: 26.0
+    affliction-duration-ticks: 120
+    affliction-max-stacks: 5
+    affliction-radius: 8.0
+    affliction-telegraph-ticks: 24
+    affliction-tick-damage: 1.5
+    affliction-tick-interval-ticks: 20
+
+    # BlightSigilsAttack
+    blight-sigils-cooldown-seconds: 26.0
+    blight-sigils-count: 3
+    blight-sigils-detonation-damage: 10.0
+    blight-sigils-detonation-radius: 4.5
+    blight-sigils-health: 24.0
+    blight-sigils-lifetime-ticks: 140
+    blight-sigils-poison-ticks: 60
+    blight-sigils-pulse-damage: 2.0
+    blight-sigils-pulse-radius: 3.5
+    blight-sigils-telegraph-ticks: 22
+
+    # CorruptionSpreadAttack
+    corruption-spread-cooldown-seconds: 12.0
+    corruption-spread-damage: 6.0
+    corruption-spread-growth-per-cast: 1.0
+    corruption-spread-max-radius: 6.0
+    corruption-spread-start-radius: 3.0
+    corruption-spread-telegraph-ticks: 18
+
+    # MiasmaAttack
+    miasma-cooldown-seconds: 14.0
+    miasma-damage-per-second: 2.0
+    miasma-duration-ticks: 120
+    miasma-poison-amplifier: 1
+    miasma-radius: 3.5
+    miasma-telegraph-ticks: 18
+    miasma-zone-count: 3
+
+    # PandemicAttack
+    pandemic-clean-air-count: 3
+    pandemic-clean-air-radius: 2.2
+    pandemic-cooldown-seconds: 22.0
+    pandemic-damage: 14.0
+    pandemic-hunger-ticks: 120
+    pandemic-poison-amplifier: 3
+    pandemic-poison-ticks: 80
+    pandemic-telegraph-ticks: 24
+    pandemic-weakness-ticks: 120
+
+    # PandemicSurgeAttack
+    pandemic-surge-blossom-count: 2
+    pandemic-surge-blossom-health: 22.0
+    pandemic-surge-burst-per-stack: 5.0
+    pandemic-surge-cooldown-seconds: 48.0
+    pandemic-surge-duration-ticks: 100
+    pandemic-surge-exposed-multiplier: 2.0
+    pandemic-surge-exposed-ticks: 100
+    pandemic-surge-poison-ticks: 100
+    pandemic-surge-stagger-ticks: 60
+    pandemic-surge-telegraph-ticks: 26
+
+    # PlagueBoltAttack
+    plague-bolt-cooldown-seconds: 6.0
+    plague-bolt-damage: 7.0
+    plague-bolt-impact-power: 0.0
+    plague-bolt-poison-ticks: 100
+    plague-bolt-projectiles: 1
+    plague-bolt-telegraph-ticks: 16
+
+    # PlagueSwarmAttack
+    plague-swarm-cooldown-seconds: 11.0
+    plague-swarm-damage: 9.0
+    plague-swarm-effect-ticks: 120
+    plague-swarm-poison-amplifier: 2
+    plague-swarm-radius: 6.0
+    plague-swarm-telegraph-ticks: 18
+
+    # PoisonCloudAttack
+    poison-cloud-cooldown-seconds: 9.0
+    poison-cloud-damage-per-second: 2.0
+    poison-cloud-duration-ticks: 100
+    poison-cloud-poison-amplifier: 1
+    poison-cloud-radius: 4.0
+    poison-cloud-telegraph-ticks: 16
+
+    # RottingGraspAttack
+    rotting-grasp-cooldown-seconds: 10.0
+    rotting-grasp-damage: 8.0
+    rotting-grasp-pull-strength: 1.4
+    rotting-grasp-slow-amplifier: 2
+    rotting-grasp-slow-ticks: 60
+    rotting-grasp-telegraph-ticks: 16
+
+    # SummonUndeadAttack
+    summon-undead-cooldown-seconds: 17.0
+    summon-undead-count: 3
+    summon-undead-max-adds: 5
+    summon-undead-telegraph-ticks: 20
+
+    # Fight systems (boss/bosses/plague)
+    bloom-nodes-required: 3
+    carrier-base-count: 2
+    carrier-burst-cure-per-second: 15.0
+    carrier-burst-duration-ticks: 200
+    carrier-burst-poison-ticks: 60
+    carrier-burst-radius: 4.0
+    cleansed-fraction: 0.25
+    host-hit-damage: 5.0
+    host-max-hp: 70.0
+    host-noise-per-vibration: 8.0
+    host-noise-radius: 10.0
+    host-noise-threshold: 100.0
+    host-shriek-cooldown-ms: 8000
+    host-shriek-darkness-ticks: 100
+    host-shriek-swarm-size: 3
+    host-uncleansed-fraction: 0.05
+    infection-contagion-max-carriers: 4
+    infection-contagion-radius: 6.0
+    infection-cure-per-second: 22.0
+    infection-threshold-cooldown-seconds: 6.0
+    pandemic-first-snuff-ticks: 160
+    pandemic-passive-gain-per-second: 2.0
+    pandemic-rate-scale: 1.8
+    pandemic-snuff-interval-ticks: 200
+    pyre-count: 4
+    pyre-fraction: 0.55
+    pyre-fuel-seconds: 40.0
+    rot-heal-cap-burst-seconds: 1.5
+    rot-heal-cap-per-second: 4.0
+    rot-meter-per-health: 1.5
+    rupture-nearby-damage: 6.0
+    rupture-nearby-spike: 30.0
+    rupture-radius: 5.0
+    rupture-self-damage: 10.0
+    spore-node-fraction: 0.7
+    spore-node-growth-per-second: 0.1
+    spore-node-hit-damage: 5.0
+    spore-node-max-hp: 30.0
+    spore-node-max-radius: 8.0
+
+    # Party-scaled in code — listed for reference only. Setting one pins it to a
+    # fixed value for every group size, which is usually not what you want.
+    # spore-node-count:   # code default: solo ? 3 : 5
+
+  # ---------------------------------------------------------- Solar Colossus
+  solar_colossus:
+    max-health: 500.0
+    arena-radius: 36.0
+    max-crater-radius: 7.0
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # BlindingRadianceAttack
+    blinding-radiance-beam-damage-per-tick: 1.2
+    blinding-radiance-beam-width-degrees: 26.0
+    blinding-radiance-cooldown-seconds: 50.0
+    blinding-radiance-exposed-multiplier: 2.0
+    blinding-radiance-exposed-ticks: 100
+    blinding-radiance-pillar-count: 6
+    blinding-radiance-pillar-height: 3
+    blinding-radiance-stagger-ticks: 60
+    blinding-radiance-sweep-ticks: 100
+    blinding-radiance-telegraph-ticks: 30
+
+    # FistThrowAttack
+    fist-throw-cooldown-seconds: 8.0
+    fist-throw-damage: 15.0
+    fist-throw-dash-ticks: 10
+    fist-throw-hit-radius: 3.0
+    fist-throw-launch-up: 1.1
+    fist-throw-speed: 1.6
+    fist-throw-telegraph-ticks: 16
+
+    # HealingAddsAttack
+    healing-adds-cooldown-seconds: 40.0
+    healing-adds-count: 2
+    healing-adds-duration-ticks: 200
+    healing-adds-heal-per-second: 12.0
+    healing-adds-health: 40.0
+    healing-adds-telegraph-ticks: 30
+
+    # MeteorAttack
+    meteor-cooldown-seconds: 12.0
+    meteor-damage: 16.0
+    meteor-height: 25.0
+    meteor-impact-power: 3.5
+    meteor-telegraph-ticks: 22
+
+    # RadiantBeamCrossAttack
+    radiant-cross-cooldown-seconds: 13.0
+    radiant-cross-damage: 13.0
+    radiant-cross-range: 16.0
+    radiant-cross-telegraph-ticks: 24
+    radiant-cross-width: 2.6
+
+    # RadiantNovaAttack
+    radiant-nova-blind-ticks: 30
+    radiant-nova-cooldown-seconds: 9.0
+    radiant-nova-damage: 10.0
+    radiant-nova-radius: 6.0
+    radiant-nova-telegraph-ticks: 18
+
+    # SeismicSlamAttack
+    seismic-slam-cooldown-seconds: 11.0
+    seismic-slam-crater-radius: 6.0
+    seismic-slam-damage: 13.0
+    seismic-slam-knockup: 0.9
+    seismic-slam-radius: 6.0
+    seismic-slam-telegraph-ticks: 20
+
+    # SolarBeamAttack
+    solar-beam-cooldown-seconds: 10.0
+    solar-beam-damage: 14.0
+    solar-beam-range: 18.0
+    solar-beam-telegraph-ticks: 24
+    solar-beam-width: 2.6
+
+    # SunfireRainAttack
+    sunfire-rain-cooldown-seconds: 16.0
+    sunfire-rain-damage: 12.0
+    sunfire-rain-drop-interval: 8
+    sunfire-rain-height: 22.0
+    sunfire-rain-impact-power: 3.0
+    sunfire-rain-meteors: 5
+    sunfire-rain-telegraph-ticks: 24
+
+    # SupernovaAttack
+    supernova-blast-radius: 13.0
+    supernova-charge-ticks: 30
+    supernova-cooldown-seconds: 26.0
+    supernova-crater-radius: 6.0
+    supernova-damage: 20.0
+
+    # Fight systems (boss/bosses/colossus)
+    ankle-armored-ticks: 100
+    ankle-expose-telegraph-ticks: 30
+    ankle-expose-window-ticks: 70
+    ankle-max-hp: 40.0
+    arm-sweep-cluster-size: 2
+    arm-sweep-cooldown-ticks: 90
+    arm-sweep-damage: 12.0
+    arm-sweep-half-angle-degrees: 70.0
+    arm-sweep-melee-range: 4.5
+    arm-sweep-radius: 5.0
+    arm-sweep-telegraph-ticks: 24
+    beacon-charge-ticks: 220
+    beacon-cycle-cooldown-ticks: 60
+    beacon-fraction: 0.7
+    beacon-interrupts-required: 3
+    beacon-obstruction-scan-height: 48
+    beacon-repair-heal-fraction: 0.16
+    body-hit-fraction: 0.04
+    chest-core-max-hp-base: 70.0
+    chest-core-max-hp-per-player: 24.0
+    debris-damage: 8.0
+    debris-drop-height: 6.0
+    debris-first-delay-ticks: 40
+    debris-impact-radius: 1.4
+    debris-interval-ticks: 70
+    debris-pieces-per-shed: 2
+    debris-spread-radius: 5.0
+    knee-max-hp: 45.0
+    kneel-refresh-ticks-per-progress: 500
+    kneel-standing-hasten-ticks: 400
+    kneel-window-cap-ticks: 420
+    pillar-damage: 13.0
+    pillar-drop-height: 9.0
+    pillar-first-delay-ticks: 80
+    pillar-impact-radius: 1.7
+    pillar-interval-ticks: 130
+    pillar-lane-count-base: 1
+    pillar-lane-length: 5
+    pillar-lane-players-per-extra: 2
+    pillar-stagger-ticks: 4
+    pillar-telegraph-ticks: 32
+    scaffold-clear-height: 10
+    scaffold-clear-radius: 4
+    scaffold-starter-height: 3
+    scaffolding-stacks-per-player: 1
+    shake-damage-fraction: 0.4
+    shake-min-height-above-anchor: 1.3
+    shake-radius: 3.5
+    shoulder-core-max-hp-base: 60.0
+    shoulder-core-max-hp-per-player: 20.0
+
+    # Party-scaled in code — listed for reference only. Setting one pins it to a
+    # fixed value for every group size, which is usually not what you want.
+    # beacon-count:   # code default: solo ? 2 : 4
+
+  # ---------------------------------------------------------- Storm Tyrant
   storm_tyrant:
-    # Scales every point of damage the Storm Tyrant deals, on top of its
-    # individual attacks' own numbers. See Boss#outgoingDamageMultiplier.
+    max-health: 300.0
+    arena-radius: 36.0
     damage-multiplier: 3.0
+    phase-floor-timeout-ms: 180000
 
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # BallLightningAttack
+    ball-lightning-contact-radius: 1.8
+    ball-lightning-cooldown-seconds: 12.0
+    ball-lightning-damage: 10.0
+    ball-lightning-explosion-power: 1.5
+    ball-lightning-max-ticks: 120
+    ball-lightning-orbs: 1
+    ball-lightning-speed: 0.35
+    ball-lightning-telegraph-ticks: 18
+
+    # ChainLightningAttack
+    chain-lightning-arc-range: 6.0
+    chain-lightning-cooldown-seconds: 8.0
+    chain-lightning-damage: 8.0
+    chain-lightning-max-arcs: 3
+    chain-lightning-telegraph-ticks: 16
+
+    # ChainOfJudgmentAttack
+    chain-of-judgment-chain-radius: 5.0
+    chain-of-judgment-cooldown-seconds: 46.0
+    chain-of-judgment-duration-ticks: 100
+    chain-of-judgment-exposed-multiplier: 2.0
+    chain-of-judgment-exposed-ticks: 100
+    chain-of-judgment-fail-threshold: 2
+    chain-of-judgment-stagger-ticks: 60
+    chain-of-judgment-strike-damage: 7.0
+    chain-of-judgment-strike-interval-ticks: 20
+    chain-of-judgment-telegraph-ticks: 26
+
+    # GalePushAttack
+    gale-push-cooldown-seconds: 9.0
+    gale-push-damage: 5.0
+    gale-push-launch: 1.1
+    gale-push-radius: 6.0
+    gale-push-telegraph-ticks: 16
+
+    # LightningRodsAttack
+    lightning-rods-backfire-damage: 10.0
+    lightning-rods-channel-ticks: 120
+    lightning-rods-cooldown-seconds: 26.0
+    lightning-rods-count: 3
+    lightning-rods-health: 24.0
+    lightning-rods-megabolt-damage: 14.0
+    lightning-rods-stun-duration-ticks: 50
+    lightning-rods-telegraph-ticks: 20
+
+    # StormcallAttack
+    stormcall-barrage-ticks: 30
+    stormcall-cooldown-seconds: 24.0
+    stormcall-damage: 14.0
+    stormcall-nudge: 0.25
+    stormcall-step-interval: 5
+    stormcall-steps-per-ring: 8
+    stormcall-strike-radius: 3.0
+    stormcall-telegraph-ticks: 24
+
+    # ThunderstormAttack
+    thunderstorm-cooldown-seconds: 18.0
+    thunderstorm-damage: 10.0
+    thunderstorm-duration-ticks: 100
+    thunderstorm-strike-radius: 3.0
+    thunderstorm-strikes: 4
+    thunderstorm-telegraph-ticks: 20
+
+    # ThunderstrikeAttack
+    thunderstrike-cooldown-seconds: 10.0
+    thunderstrike-damage: 12.0
+    thunderstrike-radius: 3.0
+    thunderstrike-telegraph-ticks: 20
+
+    # TornadoAttack
+    tornado-blocks-thrown: 3
+    tornado-cooldown-seconds: 18.0
+    tornado-damage-per-second: 2.0
+    tornado-duration-ticks: 120
+    tornado-pull-radius: 6.0
+    tornado-pull-strength: 0.35
+    tornado-telegraph-ticks: 20
+
+    # Fight systems (boss/bosses/storm)
+    barrage-damage-per-second: 5.0
+    barrage-degrees-per-second: 20.0
+    barrage-half-width-degrees: 26.0
+    breeze-count-base: 1
+    breeze-spawn-fraction: 0.75
+    charge-chain-damage: 6.0
+    charge-chain-radius: 5.0
+    charge-chain-spike: 35.0
+    charge-contagion-max-carriers: 4
+    charge-contagion-radius: 5.0
+    charge-discharge-per-second: 70.0
+    charge-strike-damage: 10.0
+    charge-threshold-cooldown-seconds: 6.0
+    discharged-fraction: 0.25
+    eye-undischarged-fraction: 0.05
+    flood-section-fraction: 0.45
+    flood-section-radius: 5.0
+    flood-sections: 3
+    pylon-fraction: 0.92
+    pylon-height: 7
+    pylon-hit-damage: 4.0
+    pylon-max-hp: 40.0
+    rod-count: 4
+    rod-placement-fraction: 0.6
+    supply-scaffolding-per-player: 16
+    supply-wind-charges-per-player: 3
+    thunderstrike-conducted-damage: 6.0
+    thunderstrike-first-delay-ticks: 60
+    thunderstrike-interval-ticks: 60
+
+    # Party-scaled in code — listed for reference only. Setting one pins it to a
+    # fixed value for every group size, which is usually not what you want.
+    # pylon-count:   # code default: solo ? 2 : 4
+
+  # ---------------------------------------------------------- Threefold Bane
+  threefold_bane:
+    max-health: 300.0
+    arena-radius: 36.0
+    phase-floor-timeout-ms: 180000
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # HealingAddsAttack
+    healing-adds-cooldown-seconds: 40.0
+    healing-adds-count: 2
+    healing-adds-duration-ticks: 200
+    healing-adds-heal-per-second: 12.0
+    healing-adds-health: 40.0
+    healing-adds-telegraph-ticks: 30
+
+    # Fight systems (boss/bosses/bane)
+    clock-base-ticks: 50
+    clock-head-offset-ticks: 14
+    clock-placement-fraction: 0.9
+    clock-repair-first-delay-ticks: 200
+    clock-repair-interval-ticks: 240
+    clock-slots: 6
+    clock-start-repeaters: 2
+    clock-ticks-per-repeater: 22
+    convergence-damage: 22.0
+    convergence-warn-ticks: 30
+    convergence-wither-ticks: 100
+    decay-nova-damage: 12.0
+    decay-nova-radius: 9.0
+    decay-nova-telegraph-ticks: 30
+    decay-nova-wither-ticks: 120
+    gaze-damage: 9.0
+    gaze-half-width-degrees: 8.0
+    gaze-range: 24.0
+    pillar-count: 5
+    pillar-height: 3
+    pillar-placement-fraction: 0.55
+    skull-volley-max: 6
+    skull-volley-shots: 2
+    supply-bone-blocks-per-player: 8
+    supply-milk-per-player: 1
+    supply-repeaters-per-player: 3
+
+  # ---------------------------------------------------------- Tide Leviathan
+  tide_leviathan:
+    max-health: 300.0
+    arena-radius: 36.0
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-heart-chance: 0.05
+    loot-cosmetic-chance: 0.008
+
+    # BubbleTrapAttack
+    bubble-trap-column-ticks: 20
+    bubble-trap-cooldown-seconds: 10.0
+    bubble-trap-damage: 6.0
+    bubble-trap-launch-power: 1.1
+    bubble-trap-telegraph-ticks: 16
+
+    # HealingAddsAttack
+    healing-adds-cooldown-seconds: 40.0
+    healing-adds-count: 2
+    healing-adds-duration-ticks: 200
+    healing-adds-heal-per-second: 12.0
+    healing-adds-health: 40.0
+    healing-adds-telegraph-ticks: 30
+
+    # MaelstromAttack
+    maelstrom-air-drain-per-tick: 6
+    maelstrom-cooldown-seconds: 24.0
+    maelstrom-damage-per-second: 3.0
+    maelstrom-duration-ticks: 160
+    maelstrom-flood-radius: 6.0
+    maelstrom-pull-strength: 0.28
+    maelstrom-slow-amplifier: 2
+    maelstrom-telegraph-ticks: 24
+
+    # TridentThrowAttack
+    trident-throw-cooldown-seconds: 8.0
+    trident-throw-damage: 9.0
+    trident-throw-impact-power: 1.5
+    trident-throw-projectiles: 2
+    trident-throw-telegraph-ticks: 16
+
+    # TsunamiAttack
+    tsunami-cooldown-seconds: 15.0
+    tsunami-damage: 12.0
+    tsunami-impact-power: 1.5
+    tsunami-spacing: 1.5
+    tsunami-telegraph-ticks: 22
+    tsunami-wall-width: 5
+
+    # WaterJetAttack
+    water-jet-cooldown-seconds: 7.0
+    water-jet-damage: 10.0
+    water-jet-hit-radius: 2.0
+    water-jet-knockback: 1.2
+    water-jet-range: 12.0
+    water-jet-telegraph-ticks: 18
+
+    # Fight systems (boss/bosses/leviathan)
+    columns-fraction-max: 0.85
+    columns-fraction-min: 0.2
+    columns-place-interval-ticks: 60
+    conduit-breath-radius: 6.0
+    conduit-fraction: 0.55
+    conduit-smash-bait-distance: 26.0
+    conduit-smash-charge-ticks: 30
+    conduit-smash-intercept-damage: 30.0
+    conduit-smash-interval-ticks: 260
+    conduit-smash-interval-ticks-p3: 200
+    conduit-smash-warn-ticks: 70
+    guardian-spawn-fraction: 0.5
+    low-tide-scale-multiplier: 1.15
+    low-tide-speed-multiplier: 0.7
+    rising-tide-stage1-fraction: 0.35
+    rising-tide-stage1-seconds: 6.0
+    rising-tide-stage2-fraction: 0.68
+    rising-tide-stage2-seconds: 26.0
+    water-drain-blocks-per-pulse: 1800
+    water-drain-residual-fraction: 0.08
+    water-flood-radius-fraction: 0.9
+    water-full-submerge-height: 9
+    water-pocket-count: 3
+    water-pocket-fraction: 0.62
+    water-pocket-radius: 1
+    water-rise-blocks-per-pulse: 500
+    whirlpool-breaks-required: 3
+    whirlpool-collision-bonus: 2.0
+    whirlpool-eye-damage-per-second: 4.0
+    whirlpool-eye-radius: 4.0
+    whirlpool-grounding-radius: 3.0
+    whirlpool-oneshot-delay-ticks: 220
+    whirlpool-oneshot-duration-ticks: 200
+    whirlpool-pull-strength: 0.16
+    whirlpool-radius-fraction: 0.7
+
+    # Party-scaled in code — listed for reference only. Setting one pins it to a
+    # fixed value for every group size, which is usually not what you want.
+    # columns-magma-p2:   # code default: 1 + players / 3
+    # columns-magma-p3:   # code default: 2 + players / 3
+    # columns-soulsand-p2:   # code default: 1 + players / 2
+    # columns-soulsand-p3:   # code default: 2 + players / 2
+
+  # ---------------------------------------------------------- Void Sovereign
+  void_sovereign:
+    max-health: 300.0
+    arena-radius: 36.0
+    phase-floor-timeout-ms: 180000
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # ArcaneMissilesAttack
+    arcane-missiles-cooldown-seconds: 9.0
+    arcane-missiles-count: 4
+    arcane-missiles-damage: 7.0
+    arcane-missiles-hit-radius: 1.5
+    arcane-missiles-max-life-ticks: 80
+    arcane-missiles-speed: 0.65
+    arcane-missiles-telegraph-ticks: 16
+
+    # BanishAttack
+    banish-cooldown-seconds: 10.0
+    banish-damage: 5.0
+    banish-distance: 8.0
+    banish-telegraph-ticks: 14
+
+    # BlinkStrikeAttack
+    blink-strike-cooldown-seconds: 8.0
+    blink-strike-damage: 10.0
+    blink-strike-range: 2.5
+    blink-strike-telegraph-ticks: 14
+
+    # CollapseAttack
+    collapse-cooldown-seconds: 18.0
+    collapse-damage: 16.0
+    collapse-levitation-ticks: 30
+    collapse-pit-radius: 2.5
+    collapse-pits: 4
+    collapse-pull-strength: 0.4
+    collapse-pull-ticks: 40
+    collapse-slam-radius: 5.5
+    collapse-telegraph-ticks: 24
+
+    # GravityFlipAttack
+    gravity-flip-blocks: 3
+    gravity-flip-cooldown-seconds: 12.0
+    gravity-flip-impact-power: 1.5
+    gravity-flip-levitation-amplifier: 1
+    gravity-flip-levitation-ticks: 60
+    gravity-flip-telegraph-ticks: 18
+    gravity-flip-throw-damage: 6.0
+
+    # SingularityAttack
+    singularity-cooldown-seconds: 14.0
+    singularity-damage: 10.0
+    singularity-pull-strength: 0.35
+    singularity-pull-ticks: 40
+    singularity-radius: 6.0
+    singularity-telegraph-ticks: 20
+
+    # TwinRiftsAttack
+    twin-rifts-cooldown-seconds: 44.0
+    twin-rifts-deadly-damage: 18.0
+    twin-rifts-duration-ticks: 90
+    twin-rifts-exposed-multiplier: 2.0
+    twin-rifts-exposed-ticks: 100
+    twin-rifts-radius: 3.0
+    twin-rifts-stagger-ticks: 60
+    twin-rifts-telegraph-ticks: 30
+
+    # VoidRiftAttack
+    void-rift-cooldown-seconds: 11.0
+    void-rift-damage: 8.0
+    void-rift-levitation-ticks: 30
+    void-rift-pit-radius: 2.5
+    void-rift-radius: 3.5
+    void-rift-telegraph-ticks: 18
+
+    # VoidZoneAttack
+    void-zone-cooldown-seconds: 15.0
+    void-zone-count: 3
+    void-zone-damage-per-second: 3.0
+    void-zone-duration-ticks: 160
+    void-zone-max-radius: 4.5
+    void-zone-start-radius: 2.0
+    void-zone-telegraph-ticks: 18
+
+    # Fight systems (boss/bosses/sovereign)
+    banish-bleed-per-second: 2.0
+    banish-hold-ticks: 140
+    banish-tether-health: 14.0
+    between-hits-required: 3
+    crystal-break-rift-radius: 3.5
+    crystal-fraction: 0.65
+    echo-cycle-ticks: 300
+    echo-damage: 7.0
+    echo-delay-ms: 3000
+    echo-radius: 1.6
+    echo-threshold-cooldown-seconds: 10.0
+    pearl-interval-ticks: 100
+    pearl-speed: 1.4
+    phantom-counter-damage: 8.0
+    phantom-decoys: 2
+    phantom-spawn-radius: 6.0
+    phantom-tell-interval-ticks: 60
+    phantom-tell-min-interval-ticks: 25
+    phantom-tell-shard-count: 3
+    phantom-tell-shorten-ticks: 8
+    piston-count: 4
+    piston-extended-ticks: 12
+    piston-first-delay-ticks: 40
+    piston-fraction: 0.5
+    piston-interval-ticks: 100
+    rift-first-delay-ticks: 60
+    rift-interval-ticks: 140
+    rift-radius: 2.5
+    singularity-burst-damage: 12.0
+    singularity-burst-radius: 5.0
+    singularity-collapse-pull-strength: 0.12
+    singularity-collapse-pull-ticks: 60
+    singularity-interval-ticks: 260
+    supply-chorus-fruit-per-player: 2
+
+    # Party-scaled in code — listed for reference only. Setting one pins it to a
+    # fixed value for every group size, which is usually not what you want.
+    # crystal-count:   # code default: solo ? 2 : 4
+
+  # ---------------------------------------------------------- Voidwyrm
+  voidwyrm:
+    max-health: 300.0
+    arena-radius: 50.0
+    phase-floor-timeout-ms: 180000
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # StarfallNovaAttack
+    starfall-nova-cooldown-seconds: 30.0
+    starfall-nova-detonation-damage: 13.0
+    starfall-nova-detonation-radius: 6.0
+    starfall-nova-pull-duration-ticks: 50
+    starfall-nova-pull-radius: 9.0
+    starfall-nova-pull-strength: 0.22
+    starfall-nova-telegraph-ticks: 20
+
+    # VoidBreathAttack
+    void-breath-angle-degrees: 50.0
+    void-breath-cooldown-seconds: 11.0
+    void-breath-damage: 6.0
+    void-breath-nausea-ticks: 60
+    void-breath-range: 8.0
+    void-breath-telegraph-ticks: 18
+
+    # WyrmDiveAttack
+    wyrm-dive-climb-ticks: 16
+    wyrm-dive-cooldown-seconds: 12.0
+    wyrm-dive-damage: 12.0
+    wyrm-dive-knockup: 0.9
+    wyrm-dive-radius: 4.5
+    wyrm-dive-telegraph-ticks: 18
+
+    # Fight systems (boss/bosses/wyrm)
+    body-hit-fraction: 0.04
+    burrow-arrive-threshold: 1.5
+    burrow-carve-interval-ticks: 20
+    burrow-crater-radius: 2.5
+    burrow-depth: 6
+    burrow-eruption-damage: 14.0
+    burrow-eruption-launch: 0.9
+    burrow-eruption-radius: 4.0
+    burrow-recovery-ticks: 45
+    burrow-surfaced-ticks: 140
+    burrow-surfaced-ticks-first: 100
+    burrow-travel-speed: 0.6
+    burrow-travel-timeout-ticks: 140
+    coil-amplitude-fraction: 0.15
+    coil-angular-speed-degrees: 9.0
+    coil-radius-fraction: 0.5
+    coil-segment-spacing-radians: 0.42
+    corner-check-distance: 3.0
+    corner-hold-ticks: 15
+    corner-player-radius: 2.2
+    corner-required-fraction: 1.0
+    corner-required-fraction-solo: 0.75
+    corner-window-ticks: 80
+    false-ground-cycle-ticks: 240
+    false-ground-disorient-ticks: 70
+    false-ground-patches: 4
+    false-ground-placement-fraction: 0.75
+    false-ground-plunge-damage: 16.0
+    false-ground-radius: 3.4
+    false-ground-reveal-ticks: 50
+    flee-speed: 0.42
+    interior-breakout-boss-damage: 40.0
+    interior-damage-per-second: 2.5
+    interior-weakpoint-hit-damage: 5.0
+    ring-radius-fraction: 0.9
+    ring-segment-count: 10
+    ring-segment-hp: 1000000.0
+    segment-armored-fraction: 0.03
+    segment-count: 8
+    segment-max-hp: 50.0
+    segment-migrate-interval-ticks: 100
+    segment-scale: 1.6
+    swallow-cooldown-ticks: 280
+    swallow-first-delay-ticks: 140
+    swallow-telegraph-ticks: 50
+    uncornered-damage-fraction: 0.05
+
+  # ---------------------------------------------------------- Weeping Colossus
+  weeping_colossus:
+    max-health: 300.0
+    arena-radius: 43.0
+    phase-floor-timeout-ms: 180000
+
+    loot-armor-chance: 0.35
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # CollapsingGazeAttack
+    collapsing-gaze-cooldown-seconds: 16.0
+    collapsing-gaze-damage: 13.0
+    collapsing-gaze-impact-radius: 2.5
+    collapsing-gaze-telegraph-ticks: 24
+
+    # FrenziedContractionAttack
+    frenzied-contraction-charge-ticks: 24
+    frenzied-contraction-cooldown-seconds: 22.0
+    frenzied-contraction-damage: 9.0
+    frenzied-contraction-hit-radius: 2.5
+    frenzied-contraction-shrink-factor: 0.82
+    frenzied-contraction-telegraph-ticks: 16
+
+    # SorrowfulWailAttack
+    sorrowful-wail-cooldown-seconds: 16.0
+    sorrowful-wail-damage: 4.0
+    sorrowful-wail-radius: 8.0
+    sorrowful-wail-slowness-ticks: 70
+    sorrowful-wail-telegraph-ticks: 20
+    sorrowful-wail-weakness-ticks: 70
+
+    # TearBarrageAttack
+    tear-barrage-blindness-ticks: 40
+    tear-barrage-cooldown-seconds: 8.0
+    tear-barrage-count: 4
+    tear-barrage-damage: 6.0
+    tear-barrage-hit-radius: 1.5
+    tear-barrage-max-life-ticks: 70
+    tear-barrage-speed: 0.75
+    tear-barrage-telegraph-ticks: 16
+
+    # Fight systems (boss/bosses/weeping)
+    ceiling-height: 7
+    ceiling-snuff-interval-ticks: 140
+    dripstone-cluster-radius: 4.0
+    dripstone-cycle-ticks: 400
+    dripstone-damage: 14.0
+    dripstone-grow-ticks: 40
+    dripstone-height: 9.0
+    dripstone-interval-ticks: 160
+    dripstone-radius: 1.8
+    supply-blocks-per-player: 24
+    supply-lanterns-per-player: 2
+    supply-torches-per-player: 12
+    tears-interval-ticks: 120
+    tears-placement-fraction: 0.6
+    tears-pools-per-cycle: 2
+    wall-crush-damage: 12.0
+    wall-cycle-ticks: 240
+    wall-feed-length: 4
+    wall-first-delay-ticks: 200
+    wall-height: 3
+    wall-start-fraction: 0.85
+    wall-warning-ticks: 40
+
+    # Party-scaled in code — listed for reference only. Setting one pins it to a
+    # fixed value for every group size, which is usually not what you want.
+    # wall-jam-ticks:   # code default: fight.playerCount() <= 1 ? 400 : 280
+    # wall-min-chamber:   # code default: 8 + fight.playerCount()
+
+  # ---------------------------------------------------------- Worldender
   worldender:
-    # Entity SCALE at spawn. Enrage multiplies on top of this.
+    max-health: 1000.0
+    arena-radius: 45.0
     scale: 3.0
+
+    loot-materials-chance: 0.6
+    loot-cosmetic-chance: 0.008
+
+    # AbsoluteZeroAttack
+    absolute-zero-cooldown-seconds: 22.0
+    absolute-zero-crater-radius: 4.0
+    absolute-zero-damage: 16.0
+    absolute-zero-radius: 12.0
+    absolute-zero-slow-amplifier: 5
+    absolute-zero-slow-ticks: 60
+    absolute-zero-telegraph-ticks: 24
+
+    # BlinkStrikeAttack
+    blink-strike-cooldown-seconds: 8.0
+    blink-strike-damage: 10.0
+    blink-strike-range: 2.5
+    blink-strike-telegraph-ticks: 14
+
+    # BlizzardAttack
+    blizzard-cooldown-seconds: 20.0
+    blizzard-damage-per-hit: 3.0
+    blizzard-duration-ticks: 140
+    blizzard-revolutions: 2.5
+    blizzard-sector-width-degrees: 40.0
+    blizzard-slow-amplifier: 1
+    blizzard-telegraph-ticks: 20
+
+    # CollapseAttack
+    collapse-cooldown-seconds: 18.0
+    collapse-damage: 16.0
+    collapse-levitation-ticks: 30
+    collapse-pit-radius: 2.5
+    collapse-pits: 4
+    collapse-pull-strength: 0.4
+    collapse-pull-ticks: 40
+    collapse-slam-radius: 5.5
+    collapse-telegraph-ticks: 24
+
+    # CorruptionSpreadAttack
+    corruption-spread-cooldown-seconds: 12.0
+    corruption-spread-damage: 6.0
+    corruption-spread-growth-per-cast: 1.0
+    corruption-spread-max-radius: 6.0
+    corruption-spread-start-radius: 3.0
+    corruption-spread-telegraph-ticks: 18
+
+    # DashSlashAttack
+    dash-slash-cooldown-seconds: 7.0
+    dash-slash-damage: 8.0
+    dash-slash-dash-ticks: 10
+    dash-slash-hit-radius: 1.8
+    dash-slash-speed: 1.7
+    dash-slash-telegraph-ticks: 14
+
+    # FireTrailAttack
+    fire-trail-cooldown-seconds: 8.0
+    fire-trail-damage: 8.0
+    fire-trail-dash-ticks: 12
+    fire-trail-fire-ticks: 80
+    fire-trail-hit-radius: 1.9
+    fire-trail-speed: 1.6
+    fire-trail-telegraph-ticks: 14
+
+    # FirestormAttack
+    firestorm-barrage-ticks: 40
+    firestorm-cooldown-seconds: 24.0
+    firestorm-damage: 10.0
+    firestorm-drop-interval: 5
+    firestorm-fire-ticks: 80
+    firestorm-height: 20.0
+    firestorm-impact-power: 3.0
+    firestorm-telegraph-ticks: 24
+
+    # GlacierSpikesAttack
+    glacier-spikes-cooldown-seconds: 11.0
+    glacier-spikes-count: 4
+    glacier-spikes-damage: 8.0
+    glacier-spikes-duration-ticks: 100
+    glacier-spikes-height: 3
+    glacier-spikes-spread: 2.5
+    glacier-spikes-telegraph-ticks: 18
+
+    # MeteorRainAttack
+    meteor-rain-cooldown-seconds: 12.0
+    meteor-rain-damage: 10.0
+    meteor-rain-height: 20.0
+    meteor-rain-impact-power: 3.0
+    meteor-rain-meteors: 5
+    meteor-rain-spread: 5.0
+    meteor-rain-telegraph-ticks: 22
+
+    # SingularityAttack
+    singularity-cooldown-seconds: 14.0
+    singularity-damage: 10.0
+    singularity-pull-strength: 0.35
+    singularity-pull-ticks: 40
+    singularity-radius: 6.0
+    singularity-telegraph-ticks: 20
+
+    # SoulDrainAttack
+    soul-drain-channel-ticks: 120
+    soul-drain-cooldown-seconds: 16.0
+    soul-drain-heal-per-tether-per-second: 4.0
+    soul-drain-max-tethers: 5
+    soul-drain-pull-strength: 0.35
+    soul-drain-radius: 12.0
+    soul-drain-telegraph-ticks: 30
+
+    # StormcallAttack
+    stormcall-barrage-ticks: 30
+    stormcall-cooldown-seconds: 24.0
+    stormcall-damage: 14.0
+    stormcall-nudge: 0.25
+    stormcall-step-interval: 5
+    stormcall-steps-per-ring: 8
+    stormcall-strike-radius: 3.0
+    stormcall-telegraph-ticks: 24
+
+    # SummonUndeadAttack
+    summon-undead-cooldown-seconds: 17.0
+    summon-undead-count: 3
+    summon-undead-max-adds: 5
+    summon-undead-telegraph-ticks: 20
+
+    # SupernovaAttack
+    supernova-blast-radius: 13.0
+    supernova-charge-ticks: 30
+    supernova-cooldown-seconds: 26.0
+    supernova-crater-radius: 6.0
+    supernova-damage: 20.0
+
+    # ThunderstrikeAttack
+    thunderstrike-cooldown-seconds: 10.0
+    thunderstrike-damage: 12.0
+    thunderstrike-radius: 3.0
+    thunderstrike-telegraph-ticks: 20
+
+    # TornadoAttack
+    tornado-blocks-thrown: 3
+    tornado-cooldown-seconds: 18.0
+    tornado-damage-per-second: 2.0
+    tornado-duration-ticks: 120
+    tornado-pull-radius: 6.0
+    tornado-pull-strength: 0.35
+    tornado-telegraph-ticks: 20
+
+    # VoidRiftAttack
+    void-rift-cooldown-seconds: 11.0
+    void-rift-damage: 8.0
+    void-rift-levitation-ticks: 30
+    void-rift-pit-radius: 2.5
+    void-rift-radius: 3.5
+    void-rift-telegraph-ticks: 18
+
+    # VoidSlamAttack
+    void-slam-air-ticks: 16
+    void-slam-cooldown-seconds: 12.0
+    void-slam-damage: 15.0
+    void-slam-knockup: 0.9
+    void-slam-radius: 5.5
+    void-slam-telegraph-ticks: 18
+
+    # WardenSonicBoomAttack
+    sonic-boom-cooldown-seconds: 10.0
+    sonic-boom-damage: 16.0
+    sonic-boom-knockback: 1.4
+    sonic-boom-range: 16.0
+    sonic-boom-telegraph-ticks: 22
+    sonic-boom-width: 2.0
+
+    # WorldenderFinaleAttack
+    finale-aura-damage: 20.0
+    finale-cooldown-seconds: 22.0
+    finale-duration-ticks: 120
+    finale-lightning-damage: 14.0
+    finale-meteor-damage: 12.0
+    finale-meteor-impact-power: 3.0
+    finale-telegraph-ticks: 30
+    finale-wave-interval-ticks: 11
+
+    # Fight systems (boss/bosses/worldender)
+    awakening-heartbeat-interval-ticks: 100
+    burning-keep-fraction: 0.22
+    burning-pour-loudness: 1.2
+    burning-rim-fraction: 0.97
+    charge-ambient-per-second: 3.0
+    charge-arc-factor: 2.0
+    charge-arc-max-carriers: 4
+    charge-arc-radius: 4.0
+    charge-chain-damage: 6.0
+    charge-chain-radius: 5.0
+    charge-chain-spike: 30.0
+    charge-discharge-per-second: 60.0
+    charge-plant-loudness: 1.4
+    charge-strike-damage: 9.0
+    charge-threshold-cooldown-seconds: 6.0
+    convergence-charge-damage: 7.0
+    convergence-charge-radius: 5.0
+    convergence-clock-base-ticks: 60
+    convergence-clock-head-offset-ticks: 16
+    convergence-clock-placement-fraction: 0.9
+    convergence-clock-slots: 5
+    convergence-clock-start-repeaters: 2
+    convergence-clock-ticks-per-repeater: 20
+    convergence-ice-radius: 4.0
+    convergence-lava-damage: 8.0
+    convergence-lava-revert-ticks: 60
+    freezing-ice-fraction: 0.95
+    rot-cure-per-second: 40.0
+    rot-heal-burst-seconds: 1.5
+    rot-heal-cap-per-second: 2.0
+    rot-louder-loudness: 0.6
+    rot-meter-per-health: 4.0
+    rot-pyre-count: 2
+    rot-pyre-fraction: 0.4
+    rot-pyre-radius: 3.5
+    rot-slow-fraction: 0.5
+    rot-threshold-cooldown-seconds: 8.0
+    rot-threshold-damage: 12.0
+    supply-buckets-per-player: 2
+    supply-chorus-fruit-per-player: 3
+    unmaking-extra-rifts: 3
+    unmaking-keep-fraction: 0.1
+    unmaking-rift-radius: 3.0
+    unmaking-sweep-damage: 14.0
+    unmaking-sweep-degrees-per-pulse: 6.0
+    unmooring-first-rift-delay-ticks: 40
+    unmooring-pour-loudness: 1.2
+    unmooring-rift-interval-ticks: 90
+    unmooring-rift-radius: 3.0
+    vibration-melee: 1.0
+    vibration-memory-ticks: 120
+    vibration-ranged: 0.8

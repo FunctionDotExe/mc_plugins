@@ -49,6 +49,9 @@ public final class RealmManager {
      *         standing where they were, minus a crystal, with no idea what had happened.
      */
     public boolean enter(Player player, Realm realm) {
+        if (!clearGateOpen(player, realm)) {
+            return false;
+        }
         WorldLookup lookup;
         try {
             lookup = worldFor(realm);
@@ -87,6 +90,39 @@ public final class RealmManager {
     }
 
     private record WorldLookup(World world, boolean freshlyCreated) {
+    }
+
+    /**
+     * Whether this player has cleared enough of the roster to be let into this realm — see
+     * {@link Boss#requiredClears()}. Only the Worldender gates by default.
+     * <p>
+     * Checked here, at the single door a player can actually walk through, rather than in
+     * {@code BossManager#spawn}: spawning is an admin action and an admin asking for a boss should get
+     * that boss. {@code weaponsplugin.boss.gate.bypass} exists for testing the capstone without first
+     * farming sixteen clears on a staff account.
+     * <p>
+     * Returns false <em>before</em> anything is created or consumed, because the crystal is only spent on
+     * a true return — a locked realm must never cost the player the item that would have opened it.
+     */
+    private boolean clearGateOpen(Player player, Realm realm) {
+        Boss boss = plugin.bossManager().get(realm.bossId()).orElse(null);
+        if (boss == null || player.hasPermission("weaponsplugin.boss.gate.bypass")) {
+            return true;
+        }
+        int required = boss.requiredClears();
+        if (required <= 0) {
+            return true;
+        }
+        int have = plugin.bossProgress().progress(player).distinctClearsExcluding(boss.id());
+        if (have >= required) {
+            return true;
+        }
+        player.sendMessage(Component.text("This realm is sealed. ", NamedTextColor.RED)
+                .append(Component.text("Beat " + (required - have) + " more distinct boss(es) first — you have "
+                        + have + " of " + required + ".", NamedTextColor.GRAY)));
+        player.sendMessage(Component.text("Your crystal is intact.", NamedTextColor.DARK_GRAY));
+        player.playSound(player.getLocation(), Sound.BLOCK_BEACON_DEACTIVATE, 0.8f, 0.6f);
+        return false;
     }
 
     /**

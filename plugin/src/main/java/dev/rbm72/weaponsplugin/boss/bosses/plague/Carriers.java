@@ -8,6 +8,7 @@ import org.bukkit.World;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.entity.AreaEffectCloud;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
@@ -15,6 +16,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -100,9 +102,10 @@ final class Carriers {
                 return;
             }
             double radius = fight.config().dbl("carrier-burst-radius", 4.0);
+            int durationTicks = fight.config().num("carrier-burst-duration-ticks", 200);
             AreaEffectCloud cloud = world.spawn(at, AreaEffectCloud.class, entity -> {
                 entity.setRadius((float) radius);
-                entity.setDuration(fight.config().num("carrier-burst-duration-ticks", 200));
+                entity.setDuration(durationTicks);
                 entity.addCustomEffect(new PotionEffect(PotionEffectType.POISON,
                         fight.config().num("carrier-burst-poison-ticks", 60), 0), true);
                 entity.setParticle(Particle.SPORE_BLOSSOM_AIR);
@@ -111,6 +114,33 @@ final class Carriers {
             fight.instance().trackEntity(cloud);
             Fx.coloredBurst(at.clone().add(0, 1, 0), PlagueFight.TOXIC, 2.4f, 60, 1.0);
             Fx.sound(at, Sound.ENTITY_ZOMBIE_VILLAGER_CURE, 1.2f, 0.6f);
+
+            // The actual "cleanse trade" (§4.2/§4.4): the burst poisons on contact, but standing in it
+            // deliberately also cures Infection — the reason killing a Carrier away from the group and
+            // then stepping into its burst is a real choice, not just lore on a particle cloud.
+            double cureRadiusSq = radius * radius;
+            double curePerSecond = fight.config().dbl("carrier-burst-cure-per-second", 15.0);
+            var cureTask = new BukkitRunnable() {
+                int ticksLeft = durationTicks;
+
+                @Override
+                public void run() {
+                    if (ticksLeft <= 0 || !cloud.isValid()) {
+                        cancel();
+                        return;
+                    }
+                    ticksLeft -= 10;
+                    for (Player player : fight.combatants()) {
+                        if (player.getWorld().equals(at.getWorld())
+                                && player.getLocation().distanceSquared(at) <= cureRadiusSq) {
+                            fight.infection().cure(player, curePerSecond * 0.5);
+                        }
+                    }
+                }
+            }.runTaskTimer(fight.plugin(), 10L, 10L);
+            // Tracked like every other fight task: it self-cancels with the cloud, but a fight torn down
+            // mid-burst should not leave a cure ticking against a meter that no longer has an owner.
+            fight.instance().trackTask(cureTask);
         }
     }
 }

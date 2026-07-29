@@ -42,13 +42,18 @@ public final class HighstepStone extends Stone {
     @Override
     public List<Component> description() {
         return List.of(
-                Component.text("Permanent Jump Boost II", NamedTextColor.GREEN),
-                Component.text("while equipped.", NamedTextColor.GRAY));
+                Component.text("Permanent Jump Boost " + roman(amplifier()), NamedTextColor.GREEN),
+                Component.text("while equipped — and the shorter", NamedTextColor.GRAY),
+                Component.text("fall vanilla gives you with it.", NamedTextColor.GRAY));
+    }
+
+    private int amplifier() {
+        return Math.max(0, configInt("amplifier", 1));
     }
 
     @Override
     public void onEquipTick(Player player) {
         // Refreshed twice a second (the tick cadence); 30 ticks outlasts the gap so it never flickers off.
-        player.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, 30, 1, true, false, false));
+        player.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, 30, amplifier(), true, false, false));
     }
 }

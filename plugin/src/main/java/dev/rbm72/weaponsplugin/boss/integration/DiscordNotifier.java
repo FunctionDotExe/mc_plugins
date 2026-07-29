@@ -23,6 +23,14 @@ public final class DiscordNotifier {
         send(plugin, "**" + bossDisplayName + "** has been defeated by " + nearbyPlayers + " player(s)! 💀");
     }
 
+    /**
+     * A player's first-ever clear of a boss — the one kill in a player's history with this boss that can
+     * only happen once, and the only one worth pinging a channel about after the roster is farmed.
+     */
+    public static void firstClear(WeaponsPlugin plugin, String bossDisplayName, String playerNames) {
+        send(plugin, "🏆 First clear! **" + playerNames + "** beat **" + bossDisplayName + "** for the first time.");
+    }
+
     public static void rareDrop(WeaponsPlugin plugin, String bossDisplayName, String itemName, double chance) {
         send(plugin, "✨ Rare drop! **" + bossDisplayName + "** dropped **" + itemName
                 + "** (" + String.format("%.1f%%", chance * 100) + " chance)!");

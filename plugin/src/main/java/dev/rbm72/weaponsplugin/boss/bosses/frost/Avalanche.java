@@ -107,7 +107,9 @@ final class Avalanche {
                     : centre.clone().add(perp, 0, along);
             ground.setY(world.getHighestBlockYAt(ground.getBlockX(), ground.getBlockZ()));
             Location dropFrom = ground.clone().add(0, 14, 0);
-            double damage = fight.config().dbl("avalanche-damage", 7.0);
+            // Not avalanche-damage: that key belongs to AvalancheAttack, which shares this boss's
+            // config section, and one name for both would make the two untunable apart.
+            double damage = fight.config().dbl("avalanche-wall-damage", 7.0);
             Grief.dropAsBlock(fight.griefContext(), dropFrom, Material.PACKED_ICE, 0.0, damage, 2.2,
                     landed -> punchHole(landed));
         }

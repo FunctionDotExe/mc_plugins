@@ -4,6 +4,8 @@ import dev.rbm72.weaponsplugin.boss.BossInstance;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.entity.Breeze;
 
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -34,8 +36,36 @@ final class FloodplainPhase extends StormPhaseMechanic {
 
     @Override
     protected void onArm() {
+        // Rods lost in P1 don't respawn until "next phase" (§3.4) — this is that phase boundary.
+        fight.rods().raiseAll();
         fight.flooding().floodSections();
         strikeCountdown = fight.config().num("thunderstrike-first-delay-ticks", 60);
+        spawnBreezeAdds();
+    }
+
+    /**
+     * §3.4: "P2 onward... real Breeze mobs drop in with sound... count = 1 + 1 per 2 players." Plain
+     * vanilla Breezes with their own AI — killing them for wind charges is the counterplay, not a custom
+     * fight mechanic on top of them.
+     */
+    private void spawnBreezeAdds() {
+        World world = fight.world();
+        if (world == null) {
+            return;
+        }
+        int count = fight.config().num("breeze-count-base", 1) + fight.playerCount() / 2;
+        double fraction = fight.config().dbl("breeze-spawn-fraction", 0.75);
+        double startAngle = ThreadLocalRandom.current().nextDouble(0, Math.PI * 2);
+        Location centre = fight.instance().arena().center();
+        double radius = fight.instance().arena().radius() * fraction;
+        for (int i = 0; i < count; i++) {
+            double angle = startAngle + (Math.PI * 2 * i) / count;
+            Location spot = centre.clone().add(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+            spot.setY(world.getHighestBlockYAt(spot.getBlockX(), spot.getBlockZ()) + 1);
+            Breeze breeze = world.spawn(spot, Breeze.class);
+            breeze.setPersistent(false);
+            fight.instance().trackEntity(breeze);
+        }
     }
 
     @Override

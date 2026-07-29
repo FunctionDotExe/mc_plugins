@@ -71,7 +71,7 @@ final class Host {
         if (world == null) {
             return;
         }
-        hp = fight.config().dbl("host-max-hp", 70.0);
+        hp = maxHp();
         Location centre = fight.instance().arena().center();
         int[][] offsets = {{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}};
         for (int[] offset : offsets) {
@@ -91,8 +91,14 @@ final class Host {
     }
 
     double fraction() {
-        double max = fight.config().dbl("host-max-hp", 70.0);
+        double max = maxHp();
         return max <= 0 ? 0.0 : Math.max(0.0, Math.min(1.0, hp / max));
+    }
+
+    /** §4.4: "Host HP scales" — a linear bump per player above one, same knob as {@code SporeNodes}. */
+    private double maxHp() {
+        double base = fight.config().dbl("host-max-hp", 70.0);
+        return base * (1.0 + 0.2 * (fight.playerCount() - 1));
     }
 
     /** Ambient upkeep only now — the actual noise accumulation lives in {@link Handler#onVibration}. */

@@ -7,7 +7,6 @@ import dev.rbm72.weaponsplugin.stone.Stone;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Color;
-import org.bukkit.GameMode;
 import org.bukkit.Particle;
 import org.bukkit.Material;
 import org.bukkit.Sound;
@@ -15,36 +14,45 @@ import org.bukkit.entity.Player;
 import org.bukkit.util.Vector;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
  * Grants a real mid-air double jump using the same "vanilla double-tap-space" gesture
- * {@code WyrmwingPlate}'s wing dash hijacks: {@link #onEquipTick} arms {@code allowFlight} only
- * while the wielder is airborne (never while grounded, so it can't be spammed into infinite hops),
- * and {@code StoneDoubleJumpListener} cancels the resulting {@code PlayerToggleFlightEvent} and
- * substitutes a single upward boost instead of real flight. One extra jump per airtime, gated by
- * {@link #jumpAvailable} — but that alone only stops chaining mid-air; it doesn't stop bunny-hopping
- * it on every single landing, so {@link #DEFAULT_COOLDOWN_MS} adds a short cooldown on top, tracked the same
- * way {@link WindrunnerStone} tracks its recharge timers.
+ * {@code WyrmwingPlate}'s wing dash hijacks: the stone arms {@code allowFlight} only while the wielder is
+ * airborne (never while grounded, so it can't be spammed into infinite hops), and
+ * {@code StoneDoubleJumpListener} cancels the resulting {@code PlayerToggleFlightEvent} and substitutes a
+ * single upward boost instead of real flight. One extra jump per airtime, gated by {@link #jumpAvailable} —
+ * but that alone only stops chaining mid-air; it doesn't stop bunny-hopping it on every single landing, so
+ * a short cooldown sits on top, tracked the same way {@link WindrunnerStone} tracks its recharge timers.
+ * <p>
+ * <b>Two fixes over the first version.</b> The arming ran on the shared 2Hz stone tick, which meant the
+ * gesture was dead for up to ten ticks after every jump — the exact ten ticks a player reaches for it in —
+ * so it now runs on {@link #onFastTick}. And nothing ever un-armed a player who unsocketed the stone while
+ * airborne: {@code allowFlight} stayed set with no listener left to cancel the toggle, which is permanent
+ * creative flight for the price of one inventory click. {@link #onIdleTick} closes that, and
+ * {@link #armedByStone} is why it can do so without stomping {@code WyrmwingPlate}, which arms the very
+ * same flag for its own gesture and would otherwise be switched off every tick by this stone's cleanup.
  */
 public final class SkyleapStone extends Stone {
 
-    private static final double BOOST_UP = 0.85;
-    private static final double BOOST_FORWARD = 0.6;
     /**
-     * Short on purpose. {@link #jumpAvailable} is the real anti-spam gate — one extra jump per
-     * airtime, no chaining — so this only exists to stop bunny-hopping a leap off every single
-     * landing. Three seconds did that by making the stone feel dead most of the time you reached for
-     * it; under a second still breaks the hop loop while leaving it responsive.
+     * Short on purpose. {@link #jumpAvailable} is the real anti-spam gate — one extra jump per airtime, no
+     * chaining — so this only exists to stop bunny-hopping a leap off every single landing. Three seconds
+     * did that by making the stone feel dead most of the time you reached for it; under a second still
+     * breaks the hop loop while leaving it responsive.
      */
-    private static final long DEFAULT_COOLDOWN_MS = 900;
+    private static final double DEFAULT_COOLDOWN_SECONDS = 0.9;
     private static final Color SKY_COLOR = Color.fromRGB(180, 210, 255);
 
     private final Map<UUID, Boolean> jumpAvailable = new HashMap<>();
     private final Map<UUID, Long> nextReadyMs = new HashMap<>();
+    /** Players whose {@code allowFlight} this stone switched on, and is therefore allowed to switch off. */
+    private final Set<UUID> armedByStone = new HashSet<>();
 
     public SkyleapStone(WeaponsPlugin plugin) {
         super(plugin);
@@ -81,26 +89,53 @@ public final class SkyleapStone extends Stone {
 
     /** Config override: {@code stones.skyleap_stone.cooldown-seconds}. */
     private long cooldownMs() {
-        double seconds = plugin.getConfig().getDouble("stones." + id() + ".cooldown-seconds",
-                DEFAULT_COOLDOWN_MS / 1000.0);
-        return Math.max(0L, Math.round(seconds * 1000));
+        return Math.max(0L, Math.round(configDouble("cooldown-seconds", DEFAULT_COOLDOWN_SECONDS) * 1000));
+    }
+
+    private double boostUp() {
+        return configDouble("boost-up", 0.85);
+    }
+
+    private double boostForward() {
+        return configDouble("boost-forward", 0.6);
     }
 
     @Override
-    public void onEquipTick(Player player) {
-        if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) {
-            return;
-        }
+    public void onFastTick(Player player) {
         UUID uuid = player.getUniqueId();
         if (player.isOnGround()) {
             jumpAvailable.put(uuid, true);
-            if (player.getAllowFlight() && !player.isFlying()) {
-                player.setAllowFlight(false);
-            }
-        } else {
-            if (!player.getAllowFlight()) {
-                player.setAllowFlight(true);
-            }
+            disarm(player);
+            return;
+        }
+        if (!player.getAllowFlight()) {
+            player.setAllowFlight(true);
+            armedByStone.add(uuid);
+        }
+    }
+
+    /**
+     * Un-arms a player who no longer has the stone socketed. Guarded on {@link #armedByStone} so a player
+     * wearing the full Wyrmwing set — which arms the same flag for its own double-tap gesture — doesn't have
+     * it torn back down every tick by this stone's housekeeping.
+     */
+    @Override
+    public void onIdleTick(Player player) {
+        UUID uuid = player.getUniqueId();
+        if (!armedByStone.contains(uuid)) {
+            return;
+        }
+        disarm(player);
+        jumpAvailable.remove(uuid);
+    }
+
+    private void disarm(Player player) {
+        UUID uuid = player.getUniqueId();
+        if (!armedByStone.remove(uuid)) {
+            return;
+        }
+        if (player.getAllowFlight() && !player.isFlying()) {
+            player.setAllowFlight(false);
         }
     }
 
@@ -143,8 +178,8 @@ public final class SkyleapStone extends Stone {
     }
 
     public void applyBoost(Player player) {
-        Vector direction = player.getLocation().getDirection().setY(0).normalize().multiply(BOOST_FORWARD);
-        direction.setY(BOOST_UP);
+        Vector direction = player.getLocation().getDirection().setY(0).normalize().multiply(boostForward());
+        direction.setY(boostUp());
         player.setVelocity(direction);
 
         Fx.sound(player, Sound.ENTITY_BREEZE_JUMP, 1.0f, 1.2f);

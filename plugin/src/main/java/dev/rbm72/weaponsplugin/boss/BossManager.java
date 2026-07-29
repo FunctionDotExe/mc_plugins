@@ -1,6 +1,8 @@
 package dev.rbm72.weaponsplugin.boss;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.boss.modifier.BossModifier;
+import dev.rbm72.weaponsplugin.boss.modifier.BossModifiers;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.attribute.Attribute;
@@ -13,7 +15,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -37,20 +38,24 @@ public final class BossManager {
     private static final double MIN_SCALE = 1.0;
     private static final double MAX_SCALE = 2.5;
 
-    /** Hard mode's extra multiplier on top of the normal group-size health scale. */
-    private static final double HARD_MODE_HEALTH_MULTIPLIER = 1.5;
-    private static final double HARD_MODE_SCALE_MULTIPLIER = 1.15;
-    private static final double HARD_MODE_SPEED_MULTIPLIER = 1.2;
-
     private final WeaponsPlugin plugin;
     private final Map<String, Boss> bosses = new LinkedHashMap<>();
     private final Map<String, BossInstance> liveByBossId = new LinkedHashMap<>();
     private final Map<UUID, BossInstance> liveByEntity = new LinkedHashMap<>();
-    private final Set<String> hardModeIds = new HashSet<>();
+    private final BossModifiers modifiers;
     private BukkitTask tickTask;
 
     public BossManager(WeaponsPlugin plugin) {
         this.plugin = plugin;
+        this.modifiers = new BossModifiers(plugin);
+    }
+
+    /**
+     * Which composable affixes are armed for each boss. Read at spawn and then fixed for that fight —
+     * a live fight never changes difficulty under the group in it.
+     */
+    public BossModifiers modifiers() {
+        return modifiers;
     }
 
     public void register(Boss boss) {
@@ -79,7 +84,10 @@ public final class BossManager {
         }
 
         LivingEntity entity = (LivingEntity) world.spawnEntity(at, boss.baseEntityType());
-        boolean hardMode = hardModeIds.contains(boss.id());
+        // Snapshotted once, here, and handed to the instance: the affix set is read at spawn and then
+        // fixed for the whole fight, so an admin arming an affix mid-pull can never change the rules
+        // under the group already in the arena.
+        Set<BossModifier> affixes = modifiers.of(boss.id());
 
         BossInstance instance;
         double maxHealth;
@@ -95,13 +103,25 @@ public final class BossManager {
             Arena arena = new Arena(at, boss.arenaRadius());
             nearbyPlayers = Math.max(1, (int) arena.playersInside().stream().filter(Arena::isCombatant).count());
             double scale = Math.min(MAX_SCALE, MIN_SCALE + 0.5 * (nearbyPlayers - 1));
-            maxHealth = boss.maxHealth() * scale * (hardMode ? HARD_MODE_HEALTH_MULTIPLIER : 1.0);
+            maxHealth = boss.maxHealth() * scale * modifiers.healthMultiplier(boss.id());
 
             AttributeInstance maxHealthAttr = entity.getAttribute(Attribute.MAX_HEALTH);
             if (maxHealthAttr != null) {
                 maxHealthAttr.setBaseValue(maxHealth);
             }
             entity.setHealth(maxHealthAttr != null ? maxHealthAttr.getValue() : maxHealth);
+
+            // Every attack a boss makes is telegraphed and scheduled by this framework. The base mob's
+            // own melee goal is not: it swings on a vanilla cooldown with no wind-up, no cast bar and no
+            // config key, and on a Warden it swings for 30. Zeroing the attribute is what makes that
+            // impossible rather than merely unlikely — target/anger suppression runs on a 5-tick pulse
+            // and a vanilla swing fits between two of them. Scripted damage is unaffected: attacks pass
+            // an explicit amount to victim.damage(...) and never read this attribute. A slipped swing now
+            // arrives as a 0-damage event, which BossDamageListener drops so it cannot even tilt a camera.
+            AttributeInstance attackDamageAttr = entity.getAttribute(Attribute.ATTACK_DAMAGE);
+            if (attackDamageAttr != null) {
+                attackDamageAttr.setBaseValue(0.0);
+            }
 
             // Bumps every boss up to actual-boss size by default. Runs before BossInstance
             // construction below, so a boss with its own deliberate size (set in its first phase's
@@ -118,7 +138,7 @@ public final class BossManager {
             // bar, no tick loop, and no way to /bossdespawn it (the manager has no record it exists).
             // Remove it and fail the spawn cleanly instead of leaking the exception up to the command
             // dispatcher as a generic "unexpected error".
-            instance = new BossInstance(plugin, this, boss, entity, arena, maxHealth);
+            instance = new BossInstance(plugin, this, boss, entity, arena, maxHealth, affixes);
         } catch (Exception | LinkageError e) {
             // LinkageError too, not just Exception: an optional integration (WorldGuard/DecentHolograms)
             // that isn't installed can fail to *link* its classes when first touched during construction,
@@ -132,8 +152,10 @@ public final class BossManager {
             }
             return Optional.empty();
         }
-        if (hardMode) {
-            instance.empower(HARD_MODE_SCALE_MULTIPLIER, HARD_MODE_SPEED_MULTIPLIER);
+        double affixScale = modifiers.scaleMultiplier(boss.id());
+        double affixSpeed = modifiers.speedMultiplier(boss.id());
+        if (affixScale != 1.0 || affixSpeed != 1.0) {
+            instance.empower(affixScale, affixSpeed);
         }
         liveByBossId.put(boss.id(), instance);
         liveByEntity.put(entity.getUniqueId(), instance);
@@ -147,25 +169,28 @@ public final class BossManager {
         // difference visible in the log, along with the world and health it actually spawned with.
         long loggedHealth = Math.round(maxHealth);
         int loggedPlayers = nearbyPlayers;
+        String loggedAffixes = affixes.isEmpty() ? "" : ", affixes " + modifiers.names(boss.id());
         plugin.getLogger().info(() -> "Boss '" + boss.id() + "' spawned in world '" + world.getName()
                 + "' at " + at.getBlockX() + "," + at.getBlockY() + "," + at.getBlockZ()
                 + " with " + loggedHealth + " HP (" + loggedPlayers + " player(s) in arena"
-                + (hardMode ? ", hard mode" : "") + ")");
+                + loggedAffixes + ")");
         return Optional.of(instance);
     }
 
-    /** Flips hard mode for a boss id — takes effect on its next spawn, not the currently live fight (if any). Returns the new state. */
+    /**
+     * Flips {@link BossModifier#HARD} for a boss id — takes effect on its next spawn, not the currently
+     * live fight (if any). Returns the new state.
+     * <p>
+     * Kept as its own method on top of the general affix registry because {@code /bosshardmode} and the
+     * boss menu's shift-click are muscle memory, and "hard mode" is the one affix worth a dedicated
+     * shortcut. Everything else goes through {@code /bossaffix}.
+     */
     public boolean toggleHardMode(String id) {
-        String key = id.toLowerCase(Locale.ROOT);
-        if (!hardModeIds.remove(key)) {
-            hardModeIds.add(key);
-            return true;
-        }
-        return false;
+        return modifiers.toggle(id, BossModifier.HARD);
     }
 
     public boolean isHardMode(String id) {
-        return hardModeIds.contains(id.toLowerCase(Locale.ROOT));
+        return modifiers.has(id, BossModifier.HARD);
     }
 
     /** True if this boss id currently has a live fight — used by the boss menu to grey out an already-spawned entry. */
@@ -244,6 +269,23 @@ public final class BossManager {
         }
         instance.end(BossInstance.EndReason.DESPAWNED);
         return true;
+    }
+
+    /**
+     * Ends every live fight and restores every arena synchronously, in one pass — {@code /bossclear}'s
+     * "reset everything, right now" behind an admin command that has no single boss id to target.
+     * Goes through the exact same {@link BossInstance#end} teardown as {@link #despawn}, so it can never
+     * leak an entity/task/meter hold that despawn wouldn't; the only difference is
+     * {@link BossInstance.EndReason#CLEARED} forces its ledger restore immediate instead of batched.
+     *
+     * @return how many live fights were cleared.
+     */
+    public int clearAll() {
+        List<BossInstance> live = List.copyOf(liveByBossId.values());
+        for (BossInstance instance : live) {
+            instance.end(BossInstance.EndReason.CLEARED);
+        }
+        return live.size();
     }
 
     void forget(BossInstance instance) {

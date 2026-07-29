@@ -81,9 +81,10 @@ public final class VoidSovereign extends Boss {
 
         this.phases = List.of(
                 // Echoes: delayed strikes on each player's own recent positions. He is hittable the
-                // entire time — the ask is continuous movement, not standing and trading.
+                // entire time — the ask is continuous movement, not standing and trading. No floor loss
+                // yet: §5.3 is explicit that Void Rifts are P2's "new mechanic", not P1's.
                 new BossPhase("Echoes", 1.0,
-                        List.of(blinkStrike, arcaneMissiles, voidRift, banish),
+                        List.of(blinkStrike, arcaneMissiles, banish),
                         false, VoidSovereign::onEnterPhase1,
                         instance -> SovereignPhases.echoes(instance, 0.72)),
                 // Collapse: real rifts start opening, permanently, and a Singularity drags the group
@@ -137,6 +138,17 @@ public final class VoidSovereign extends Boss {
     @Override
     public LootTable lootTable() {
         return lootTable;
+    }
+
+    /**
+     * Four times the roster default, same reasoning as the Fallen King: surviving an Echo cycle, a
+     * Singularity, and landing three real hits on him through the phantom split are physical acts under
+     * pressure rather than a burst window, and {@code SovereignPhaseMechanic#progressSignal} resets the
+     * clock on every one of them.
+     */
+    @Override
+    public int phaseFloorTimeoutMs() {
+        return configInt("phase-floor-timeout-ms", 180_000);
     }
 
     /** Offset from his phase boundaries (0.72 / 0.45 / 0.18) so they land mid-phase, not on transitions. */

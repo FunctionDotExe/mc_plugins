@@ -25,8 +25,6 @@ import java.util.List;
  */
 public final class LevitationStone extends Stone {
 
-    private static final int LEVITATION_TICKS = 100;
-    private static final int SLOW_FALLING_TICKS = 140;
     private static final Color SKY_COLOR = Color.fromRGB(200, 225, 255);
 
     public LevitationStone(WeaponsPlugin plugin) {
@@ -56,9 +54,18 @@ public final class LevitationStone extends Stone {
     @Override
     public List<Component> description() {
         return List.of(
-                Component.text("A standalone active ability.", NamedTextColor.DARK_GRAY),
-                Component.text("Grants a standalone active", NamedTextColor.GRAY),
-                Component.text("ability of its own.", NamedTextColor.GRAY));
+                Component.text("Rides real Levitation upward —", NamedTextColor.GRAY),
+                Component.text("a climb you steer with WASD, not", NamedTextColor.GRAY),
+                Component.text("a launch you commit to. Slow", NamedTextColor.GRAY),
+                Component.text("Falling covers the way back down.", NamedTextColor.GRAY));
+    }
+
+    private int levitationTicks() {
+        return configInt("levitation-ticks", 100);
+    }
+
+    private int slowFallingTicks() {
+        return configInt("slow-falling-ticks", 140);
     }
 
     @Override
@@ -74,7 +81,8 @@ public final class LevitationStone extends Stone {
     @Override
     public List<Component> personalAbilityLore() {
         return List.of(
-                Component.text("Drift steadily upward for 5s", NamedTextColor.GRAY),
+                Component.text(String.format(java.util.Locale.ROOT, "Drift steadily upward for %.0fs",
+                        levitationTicks() / 20.0), NamedTextColor.GRAY),
                 Component.text("with full movement control,", NamedTextColor.GRAY),
                 Component.text("plus enough Slow Falling to", NamedTextColor.GRAY),
                 Component.text("land safely after.", NamedTextColor.GRAY));
@@ -82,13 +90,13 @@ public final class LevitationStone extends Stone {
 
     @Override
     public double personalAbilityCooldownSeconds() {
-        return 20.0;
+        return configDouble("cooldown-seconds", 20.0);
     }
 
     @Override
     public void personalAbility(Player player) {
-        player.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, LEVITATION_TICKS, 0, true, true));
-        player.addPotionEffect(new PotionEffect(PotionEffectType.SLOW_FALLING, SLOW_FALLING_TICKS, 0, true, true));
+        player.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, levitationTicks(), 0, true, true));
+        player.addPotionEffect(new PotionEffect(PotionEffectType.SLOW_FALLING, slowFallingTicks(), 0, true, true));
 
         Fx.sound(player, Sound.ITEM_ELYTRA_FLYING, 1.0f, 1.1f);
         Fx.sound(player, Sound.ENTITY_PHANTOM_FLAP, 0.7f, 0.8f);

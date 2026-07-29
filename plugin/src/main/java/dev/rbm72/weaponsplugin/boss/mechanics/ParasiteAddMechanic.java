@@ -155,7 +155,7 @@ public final class ParasiteAddMechanic extends TickingMechanic {
             return;
         }
         if (elapsedTicks % 20 == 0) {
-            hurt(tethered, tetherDrainPerSecond);
+            tickHurt(tethered, tetherDrainPerSecond);
             Fx.coloredBurst(tethered.getLocation().add(0, 1.2, 0), color, 1.2f, 10, 0.3);
         }
         if (parasite instanceof Mob mob) {

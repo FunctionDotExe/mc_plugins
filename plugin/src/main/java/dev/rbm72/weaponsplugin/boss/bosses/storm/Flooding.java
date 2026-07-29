@@ -93,7 +93,13 @@ final class Flooding {
         world.strikeLightning(target);
         Fx.sound(target, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 1.3f, 0.8f);
 
-        Block origin = world.getBlockAt(target.getBlockX(), target.getBlockY() - 1, target.getBlockZ());
+        // Flooded tiles sit one block above the solid ground (see #floodSections) — that is the same Y a
+        // standing player's feet occupy, so the strike location's own block is the one to seed the
+        // flood-fill from. Fall back to underfoot for a bolt that landed just short of the water's edge.
+        Block origin = world.getBlockAt(target.getBlockX(), target.getBlockY(), target.getBlockZ());
+        if (origin.getType() != Material.WATER) {
+            origin = origin.getRelative(0, -1, 0);
+        }
         if (origin.getType() != Material.WATER) {
             return;
         }

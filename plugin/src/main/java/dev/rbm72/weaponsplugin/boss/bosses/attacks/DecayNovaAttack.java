@@ -77,7 +77,7 @@ public final class DecayNovaAttack extends BossAttack {
                                             && !ctx.instance().addManager().isTracked(nearby.getUniqueId())) {
                                         double dist = target.getLocation().distance(origin);
                                         if (dist <= radius) {
-                                            target.damage(damagePerPulse, ctx.boss());
+                                            tickHurt(ctx, target, damagePerPulse);
                                             StatusEffectManager.apply(target, PotionEffectType.WITHER, witherTicks, 1);
                                         }
                                     }

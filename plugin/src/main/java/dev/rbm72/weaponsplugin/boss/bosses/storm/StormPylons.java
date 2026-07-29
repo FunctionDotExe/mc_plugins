@@ -67,21 +67,25 @@ final class StormPylons {
         int count = fight.config().num("pylon-count", solo ? 2 : 4);
         double fraction = fight.config().dbl("pylon-fraction", 0.92);
         double maxHp = fight.config().dbl("pylon-max-hp", 40.0);
+        // §3.3: "to reach a pylon you have to use wind charges... or build up temporary scaffolding
+        // towers" — a 3-tall totem sitting at ground height was reachable by plain walking, which never
+        // exercised that puzzle at all. Tall enough that nobody clears it with a jump alone.
+        int height = fight.config().num("pylon-height", 7);
         double startAngle = ThreadLocalRandom.current().nextDouble(0, Math.PI * 2);
 
         for (int i = 0; i < count; i++) {
             double angle = startAngle + (Math.PI * 2 * i) / count;
             Location spot = surfaceSpot(angle, fraction);
-            for (int y = 0; y < 3; y++) {
+            for (int y = 0; y < height; y++) {
                 Block block = world.getBlockAt(spot.getBlockX(), spot.getBlockY() + y, spot.getBlockZ());
-                Material material = y == 2 ? Material.LIGHTNING_ROD : Material.COPPER_BLOCK;
+                Material material = y == height - 1 ? Material.LIGHTNING_ROD : Material.COPPER_BLOCK;
                 Grief.setMechanicBlock(fight.griefContext(), block, material);
             }
             Pylon pylon = new Pylon();
-            pylon.core = world.getBlockAt(spot.getBlockX(), spot.getBlockY() + 1, spot.getBlockZ());
+            pylon.core = world.getBlockAt(spot.getBlockX(), spot.getBlockY() + height - 1, spot.getBlockZ());
             pylon.hp = maxHp;
             pylon.maxHp = maxHp;
-            Breeze guard = world.spawn(spot.clone().add(0, 1, 0), Breeze.class);
+            Breeze guard = world.spawn(spot.clone().add(0, height - 1, 0), Breeze.class);
             guard.setPersistent(false);
             fight.instance().trackEntity(guard);
             pylon.guardId = guard.getUniqueId();

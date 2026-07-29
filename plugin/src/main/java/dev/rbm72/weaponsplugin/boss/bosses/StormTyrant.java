@@ -148,6 +148,17 @@ public final class StormTyrant extends Boss {
         return lootTable;
     }
 
+    /**
+     * Four times the roster default, same reasoning as the Fallen King: getting everyone discharged,
+     * surviving a full strike cycle, and wearing down Storm Pylons are physical acts under pressure
+     * rather than a burst window, and {@code StormPhaseMechanic#progressSignal} resets the clock on
+     * every one of them (including partial pylon damage — see {@code StormPylons#damageProgress}).
+     */
+    @Override
+    public int phaseFloorTimeoutMs() {
+        return configInt("phase-floor-timeout-ms", 180_000);
+    }
+
     /** Offset from his phase boundaries (0.70 / 0.45 / 0.15) so they land mid-phase, not on transitions. */
     @Override
     public List<BossEvent> events() {

@@ -90,6 +90,26 @@ public final class StoneManager {
         }
     }
 
+    /**
+     * Drives {@link Stone#onFastTick}/{@link Stone#onIdleTick} for one player — called from
+     * {@code StoneMovementTask} every tick.
+     * <p>
+     * Every registered stone is visited, not just the equipped ones: the idle hook is what un-arms a
+     * capability a stone switched on for a player who has since unsocketed it, so skipping the unequipped
+     * stones is exactly the case it exists to cover. The roster is a dozen objects and the hook is a no-op
+     * for all but one of them, so this is cheaper than the equipped lookup it rides along with.
+     */
+    public void fastTick(Player player) {
+        List<String> equippedIds = equippedIds(player.getUniqueId());
+        for (Stone stone : registry.all()) {
+            if (equippedIds.contains(stone.id())) {
+                stone.onFastTick(player);
+            } else {
+                stone.onIdleTick(player);
+            }
+        }
+    }
+
     /** True if any currently-equipped stone grants a personal ability (regardless of cooldown state). */
     public boolean hasEquippedPersonalAbility(Player player) {
         for (Stone stone : equipped(player)) {

@@ -14,6 +14,10 @@ commands:
   weapons:
     description: Opens the weapon menu
     usage: /weapons
+  weaponbalance:
+    description: DPS, cooldown and counterplay table across the whole weapon roster
+    usage: /weaponbalance [chat|md|csv]
+    permission: weaponsplugin.balance
   opcooldown:
     description: Toggles cooldown bypass for every weapon
     usage: /opcooldown
@@ -26,6 +30,10 @@ commands:
     description: Despawns a live boss
     usage: /bossdespawn <id>
     permission: weaponsplugin.boss.spawn
+  bossclear:
+    description: Ends every live boss fight and restores every arena immediately, as if nobody ever pulled it
+    usage: /bossclear
+    permission: weaponsplugin.boss.admin
   bossinfo:
     description: Shows a boss's health, arena radius, phases, and loot odds
     usage: /bossinfo <id>
@@ -37,9 +45,36 @@ commands:
     description: Toggles hard mode for a boss (applies on its next spawn)
     usage: /bosshardmode <id>
     permission: weaponsplugin.boss.admin
+  bossaffix:
+    description: Arms or disarms stackable difficulty affixes on a boss
+    usage: /bossaffix <id> <add|remove|toggle> <affix> | /bossaffix <id> clear | /bossaffix list
+    permission: weaponsplugin.boss.admin
+  bossreport:
+    description: Prints the telemetry for a recorded fight (phases, deaths, bypassed mechanics)
+    usage: /bossreport [id|list]
+    permission: weaponsplugin.boss.admin
+  bosstest:
+    description: Force-runs every attack of a boss against you, then asserts the fight leaked nothing
+    usage: /bosstest <id|all>
+    permission: weaponsplugin.boss.admin
+  bossaudio:
+    description: Lists boss sound keys seen this session, or dumps a pack-ready sounds.json
+    usage: /bossaudio [list|dump]
+    permission: weaponsplugin.boss.admin
+  bossleaderboard:
+    description: Ranks players by boss kills, or one boss by fastest clear
+    usage: /bossleaderboard [id]
+  bossdamagetrace:
+    description: Traces every bit of health you lose and whether it tilted your camera
+    usage: /bossdamagetrace
+    permission: weaponsplugin.boss.admin
   bossparticles:
     description: Sets the global boss particle volume multiplier (0.1-2.0)
     usage: /bossparticles [scale]
+    permission: weaponsplugin.boss.admin
+  bossmusic:
+    description: Sets the global boss theme music volume multiplier (0.0-2.0)
+    usage: /bossmusic [scale]
     permission: weaponsplugin.boss.admin
   particles:
     description: Sets your own personal weapon/boss particle volume (0-200%)
@@ -79,6 +114,13 @@ commands:
     description: Gives you a healing consumable
     usage: /giveconsumable <id>
     permission: weaponsplugin.give
+  giveopitem:
+    description: Gives you an operator item (Ascendant Elixir, Heart Vessel)
+    usage: /giveopitem <id>
+    permission: weaponsplugin.op
+  hearts:
+    description: Shows your bonus-heart tally, or adds/removes hearts (op)
+    usage: /hearts [show [player]] | /hearts <add|remove|set> <amount> [player]
 
 permissions:
   weaponsplugin.give:
@@ -87,12 +129,24 @@ permissions:
   weaponsplugin.opcooldown:
     description: Allows toggling cooldown bypass
     default: op
+  weaponsplugin.balance:
+    description: Allows generating the weapon balance sheet
+    default: op
   weaponsplugin.boss.spawn:
     description: Allows spawning and despawning bosses
     default: op
   weaponsplugin.boss.admin:
-    description: Allows reloading boss tuning and toggling hard mode
+    description: Allows reloading boss tuning, arming affixes, dry runs, telemetry and audio dumps
+    default: op
+  weaponsplugin.boss.gate.bypass:
+    description: Allows entering a realm whose boss clear gate you have not met
     default: op
   weaponsplugin.enderchest.others:
     description: Allows viewing other players' ender chests
+    default: op
+  weaponsplugin.op:
+    description: Allows taking and using operator items — deliberately outside weapon balance
+    default: op
+  weaponsplugin.hearts:
+    description: Allows adding or removing bonus hearts, on yourself or another player
     default: op

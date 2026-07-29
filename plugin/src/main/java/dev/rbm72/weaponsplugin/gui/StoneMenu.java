@@ -26,6 +26,11 @@ public final class StoneMenu {
     public static final Component TITLE = Component.text("Movement Stones", NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD);
     private static final int SIZE = 45;
     private static final int LABEL_SLOT = 22;
+    /**
+     * Last catalog slot. Two full rows rather than one: the roster outgrew nine stones, and the old
+     * single-row cap silently stopped rendering at the ninth — a registered stone nobody could see or take.
+     */
+    private static final int LAST_CATALOG_SLOT = 17;
     /** The player's equip slots, one per {@link StoneManager#MAX_SLOTS}. */
     public static final int[] EQUIP_SLOTS = {30, 31, 32};
 
@@ -46,7 +51,7 @@ public final class StoneMenu {
         boolean unlocked = viewer.hasPermission("weaponsplugin.give");
         int slot = 0;
         for (Stone stone : plugin.stoneRegistry().all()) {
-            if (slot > 8) {
+            if (slot > LAST_CATALOG_SLOT) {
                 break;
             }
             inventory.setItem(slot, unlocked ? stone.createItem() : MenuStyle.lockedIcon());
@@ -84,7 +89,7 @@ public final class StoneMenu {
     }
 
     public static boolean isCatalogSlot(int rawSlot) {
-        return rawSlot >= 0 && rawSlot <= 8;
+        return rawSlot >= 0 && rawSlot <= LAST_CATALOG_SLOT;
     }
 
     private static ItemStack equippedIcon(Stone stone) {

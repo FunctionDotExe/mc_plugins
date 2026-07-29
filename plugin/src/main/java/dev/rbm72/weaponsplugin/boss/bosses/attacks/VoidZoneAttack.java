@@ -92,7 +92,7 @@ public final class VoidZoneAttack extends BossAttack {
                                 for (Player player : ctx.arena().playersInside()) {
                                     for (Location c : centers) {
                                         if (player.getLocation().distanceSquared(c) <= radius * radius) {
-                                            player.damage(damagePerSecond, ctx.boss());
+                                            tickHurt(ctx, player, damagePerSecond);
                                             player.setVelocity(player.getVelocity().add(new Vector(0, -0.4, 0)));
                                             Fx.coloredBurst(player.getLocation().add(0, 1, 0), VOID_PURPLE, 1.3f, 12, 0.4);
                                             Fx.bloodSpray(player.getLocation().add(0, 1, 0));

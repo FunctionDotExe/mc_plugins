@@ -2,6 +2,7 @@ package dev.rbm72.weaponsplugin.boss.grief;
 
 import dev.rbm72.weaponsplugin.boss.AttackContext;
 import dev.rbm72.weaponsplugin.fx.Fx;
+import dev.rbm72.weaponsplugin.util.BlockGuard;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
@@ -88,7 +89,7 @@ public final class Grief {
     }
 
     private static boolean write(AttackContext ctx, Block block, Material material) {
-        if (ArenaLedger.isProtected(block.getType())) {
+        if (BlockGuard.isProtected(block.getType())) {
             return false;
         }
         if (!ctx.instance().ledger().record(block)) {

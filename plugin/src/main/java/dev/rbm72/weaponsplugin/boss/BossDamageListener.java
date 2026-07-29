@@ -101,9 +101,36 @@ public final class BossDamageListener implements Listener {
         return null;
     }
 
+    /**
+     * Drops the base mob's own un-telegraphed attacks, so every hit a player takes from a boss is one
+     * this framework scheduled and announced.
+     * <p>
+     * Two shapes get through otherwise. A vanilla <b>melee swing</b> arrives with zero damage — see the
+     * {@code ATTACK_DAMAGE} zeroing in {@link BossManager} — and a zero-damage hit is pure downside: no
+     * health lost, but the client still rolls the camera and plays the hurt sound, which is exactly the
+     * "it tilts constantly for the whole fight" complaint. A <b>sonic boom</b> arrives with its own
+     * damage cause, which no scripted attack ever produces ({@code WardenSonicBoomAttack} deals its
+     * damage itself, as a plain hit), so that cause from a boss is always the vanilla goal firing.
+     * <p>
+     * LOWEST so it settles before anything else spends work on an event that is about to be cancelled.
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onVanillaBossAttack(EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof Player)) {
+            return;
+        }
+        boolean sonicBoom = event.getCause() == EntityDamageEvent.DamageCause.SONIC_BOOM;
+        if (!sonicBoom && event.getDamage() > 0.0) {
+            return;
+        }
+        if (bossManager.instanceFor(event.getDamager().getUniqueId()).isPresent()) {
+            event.setCancelled(true);
+        }
+    }
+
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBossDealDamage(EntityDamageByEntityEvent event) {
-        if (!(event.getEntity() instanceof Player)) {
+        if (!(event.getEntity() instanceof Player victim)) {
             return;
         }
         Entity damager = event.getDamager();
@@ -115,6 +142,11 @@ public final class BossDamageListener implements Listener {
             if (multiplier != 1.0) {
                 event.setDamage(event.getDamage() * multiplier);
             }
+            // Stamp which of the boss's attacks last touched this player. This is the only place that
+            // information exists: by the time they die, PlayerDeathEvent can name a damage cause but
+            // never a mechanic, and a wipe report that says "killed by MAGIC" tells a tuner nothing.
+            instance.plugin().fightLog().safely(
+                    () -> instance.telemetry().bossHitPlayer(victim, instance.activeAttackName()));
         });
     }
 

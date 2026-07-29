@@ -4,6 +4,7 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.ability.ComboTracker;
 import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.ability.CooldownManager.Slot;
+import dev.rbm72.weaponsplugin.ability.UltimateChargeManager;
 import dev.rbm72.weaponsplugin.accessory.AccessoryManager;
 import dev.rbm72.weaponsplugin.boss.BossManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
@@ -25,6 +26,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -42,15 +44,18 @@ public final class WeaponDamageListener implements Listener {
     private final AccessoryManager accessories;
     private final CooldownManager cooldowns;
     private final BossManager bossManager;
+    private final UltimateChargeManager ultimateCharge;
     private final ComboTracker combos = new ComboTracker();
 
     public WeaponDamageListener(WeaponsPlugin plugin, WeaponRegistry registry, AccessoryManager accessories,
-                                 CooldownManager cooldowns, BossManager bossManager) {
+                                 CooldownManager cooldowns, BossManager bossManager,
+                                 UltimateChargeManager ultimateCharge) {
         this.plugin = plugin;
         this.registry = registry;
         this.accessories = accessories;
         this.cooldowns = cooldowns;
         this.bossManager = bossManager;
+        this.ultimateCharge = ultimateCharge;
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -88,10 +93,33 @@ public final class WeaponDamageListener implements Listener {
                     COMBAT_NOTICE_MS, ActionBarHub.PRIORITY_NOTICE);
         }
 
+        // Charge is credited from the damage as finally computed — after crit, execute, combo and PvP
+        // scaling. Reading event.getDamage() before those would make a charge meter fill at a rate
+        // unrelated to what the player just watched happen.
+        ultimateCharge.onMeleeHit(attacker, weapon, event.getFinalDamage());
+
         if (victim.getHealth() - event.getFinalDamage() <= 0) {
             killFx(victim, weapon);
             weapon.onKill(attacker, victim);
+            ultimateCharge.onKill(attacker, weapon);
         }
+    }
+
+    /**
+     * Credits charge for damage <em>taken</em> while holding a charge weapon — the knob that lets a
+     * defensive weapon earn its ultimate by enduring rather than by dealing.
+     * <p>
+     * Separate handler because taking damage is a different event entirely, and reading the weapon from the
+     * victim's main hand is the only way to know whose meter should fill. Weapons with no
+     * {@code perDamageTaken} in their spec are unaffected; the manager no-ops on a zero rate.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDamageTaken(EntityDamageEvent event) {
+        if (!(event.getEntity() instanceof Player victim)) {
+            return;
+        }
+        registry.identify(victim.getInventory().getItemInMainHand())
+                .ifPresent(weapon -> ultimateCharge.onDamageTaken(victim, weapon, event.getFinalDamage()));
     }
 
     /** Universal "kill confirmed" beat, layered under whatever the weapon's own onKill hook adds. */

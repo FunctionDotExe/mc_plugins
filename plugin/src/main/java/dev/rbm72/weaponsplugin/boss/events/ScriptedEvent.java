@@ -5,6 +5,7 @@ import dev.rbm72.weaponsplugin.boss.Arena;
 import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.MechanicBar;
+import dev.rbm72.weaponsplugin.boss.TickDamage;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
@@ -166,6 +167,15 @@ public abstract class ScriptedEvent extends BossEvent {
             return;
         }
         player.damage(amount, instance.entity());
+    }
+
+    /**
+     * Damage-over-time credited to the boss: health comes off, the camera does not tilt and momentum
+     * is not stolen. Use this for anything that pulses on a timer; {@link #hurt} stays the right call
+     * for a discrete hit the player is meant to feel land. See {@link TickDamage}.
+     */
+    protected static void tickHurt(BossInstance instance, Player player, double amount) {
+        TickDamage.apply(instance, player, amount);
     }
 
     /** A reachable point on the arena floor, anchored to the fixed centre rather than the boss. */

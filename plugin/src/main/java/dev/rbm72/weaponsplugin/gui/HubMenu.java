@@ -35,6 +35,7 @@ public final class HubMenu {
     public static final int REALMS_SLOT = 25;
     public static final int CONSUMABLES_SLOT = 30;
     public static final int WEAPONS_SLOT = 32;
+    public static final int OP_ITEMS_SLOT = 34;
 
     private HubMenu() {
     }
@@ -86,6 +87,14 @@ public final class HubMenu {
             inventory.setItem(SHIELDS_SLOT, button(Material.SHIELD, NamedTextColor.GOLD,
                     "❁ Shields (Op)", true,
                     List.of(Component.text("Browse and grab any shield.", NamedTextColor.GRAY))));
+        }
+        if (viewer.hasPermission("weaponsplugin.op")) {
+            inventory.setItem(OP_ITEMS_SLOT, button(Material.NETHER_STAR, NamedTextColor.GOLD,
+                    "✷ Operator Items (Op)", true,
+                    List.of(
+                            Component.text("Deliberately overpowered grants:", NamedTextColor.GRAY),
+                            Component.text("the Ascendant Elixir and bonus", NamedTextColor.GRAY),
+                            Component.text("hearts. Outside weapon balance.", NamedTextColor.GRAY))));
         }
         if (viewer.hasPermission("weaponsplugin.boss.spawn")) {
             inventory.setItem(BOSSES_SLOT, button(Material.WITHER_SKELETON_SKULL, NamedTextColor.GOLD,

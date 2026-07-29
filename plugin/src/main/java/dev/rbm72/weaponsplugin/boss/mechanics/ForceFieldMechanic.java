@@ -137,7 +137,7 @@ public final class ForceFieldMechanic extends TickingMechanic {
                     : dist >= dangerRadius;
             if (inDanger) {
                 if (elapsedTicks % 20 == 0) {
-                    hurt(player, dangerDamagePerSecond);
+                    tickHurt(player, dangerDamagePerSecond);
                     Fx.coloredBurst(at.clone().add(0, 1, 0), color, 1.4f, 14, 0.4);
                     Fx.sound(at, Sound.ENTITY_PLAYER_HURT, 0.7f, 0.8f);
                 }

@@ -1,0 +1,23 @@
+{
+  "boss.telegraph.windup": {
+    "category": "hostile",
+    "subtitle": "Boss winds up",
+    "sounds": [
+      { "name": "minecraft:block.note_block.basedrum", "type": "event" }
+    ]
+  },
+  "boss.telegraph.release": {
+    "category": "hostile",
+    "subtitle": "Attack lands",
+    "sounds": [
+      { "name": "minecraft:block.note_block.bell", "type": "event" }
+    ]
+  },
+  "boss.worldender.theme": {
+    "category": "music",
+    "subtitle": "The Worldender's theme",
+    "sounds": [
+      { "name": "weaponsplugin:boss/worldender/theme", "stream": true }
+    ]
+  }
+}

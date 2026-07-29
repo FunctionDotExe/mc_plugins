@@ -17,6 +17,7 @@ plugin/gradle.properties
 *.iml
 .DS_Store
 Thumbs.db
+nul
 
 # Claude Code session scratch (plan/review working state, not project source)
 .superpowers/

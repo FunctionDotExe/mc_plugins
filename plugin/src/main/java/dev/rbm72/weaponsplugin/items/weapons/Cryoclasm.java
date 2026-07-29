@@ -1,20 +1,22 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.ChargeSpec;
+import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.items.kit.Counterplay;
+import dev.rbm72.weaponsplugin.items.kit.TempTerrain;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
-import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
@@ -26,6 +28,7 @@ import org.bukkit.util.Vector;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -33,6 +36,22 @@ import java.util.UUID;
  * Terrain-control ice weapon: every ability is a real, temporary block edit — an ice path skated
  * across, a powder-snow patch that actually freezes whoever stands in it, a raised ice wall, and an
  * ultimate that boxes the target inside real packed-ice walls until they shatter free.
+ * <p>
+ * <b>This one was already §0.1-shaped and still had to be reworked</b>, for a reason worth recording: it
+ * carried its own block ledger. Three private helpers ({@code placeIfAir}, {@code resurface},
+ * {@code revertAfter}) tracked parallel lists of blocks and their original data, and their refusal rule was
+ * a hand-written check for bedrock and barriers. That missed tile entities entirely — so
+ * {@code resurface} would happily overwrite a chest, a sign or a spawner with packed ice, and the "revert"
+ * afterwards restored a chest-shaped block with none of its contents, because {@link BlockData} does not
+ * carry an inventory. A player's storage could be silently emptied by someone dashing past it.
+ * <p>
+ * Every write now goes through {@link TempTerrain}, which shares one refusal rule with the boss ledger via
+ * {@link dev.rbm72.weaponsplugin.util.BlockGuard} and coordinates with the arena ledger when the ice lands
+ * inside a live fight. The abilities are unchanged in feel; they just cannot eat a chest any more.
+ * <p>
+ * <b>Counterplay.</b> The ice specialist is the roster's answer to being frozen: it clears the stacks a
+ * boss is piling on (Chill above all) and restores footing on a floor that has been turned to blue ice —
+ * the two things the Frost Queen does that no amount of damage answers.
  */
 public final class Cryoclasm extends Weapon {
 
@@ -165,6 +184,38 @@ public final class Cryoclasm extends Weapon {
         return "Glacial Prison";
     }
 
+    /**
+     * Glacial Prison is earned. It is a single-target hard lock plus a shatter, which is the most swing-heavy
+     * thing in the kit — on a flat timer it was simply "available", and a lock that strong should be the
+     * result of a fight going your way rather than of forty seconds elapsing.
+     */
+    @Override
+    public ChargeSpec ultimateChargeSpec() {
+        return ChargeSpec.builder("Rime")
+                .accent(ICE_BLUE)
+                .perMeleeHit(configDouble("rime-per-hit", 7.0))
+                .perDamageDealt(configDouble("rime-per-damage-dealt", 0.4))
+                .perAbilityCast(configDouble("rime-per-ability", 10.0))
+                .perKill(configDouble("rime-per-kill", 12.0))
+                .decay(configDouble("rime-decay-per-second", 2.0), configDouble("rime-decay-grace", 8.0))
+                .cooldownFloor(configDouble("rime-cooldown-floor", 18.0))
+                .build();
+    }
+
+    @Override
+    public Map<CooldownManager.Slot, Double> damageProfile() {
+        // ability2 (the powder-snow patch) and ability3 (the wall) deal no direct damage — they are terrain,
+        // and pricing them as attacks would make the sheet read them as two dead slots.
+        return Map.of(
+                CooldownManager.Slot.ABILITY1, dashDamage,
+                CooldownManager.Slot.ULTIMATE, prisonDamage);
+    }
+
+    @Override
+    public Set<CounterVerb> counterVerbs() {
+        return Set.of(CounterVerb.METER, CounterVerb.FOOTING);
+    }
+
     @Override
     public Sound castSound() {
         return Sound.BLOCK_GLASS_BREAK;
@@ -180,37 +231,29 @@ public final class Cryoclasm extends Weapon {
         return Sound.BLOCK_GLASS_PLACE;
     }
 
-    /** Fills {@code block} with {@code material} only if it's currently empty air, tracking the original for revert. Used anywhere a wall/cage/patch should never eat existing terrain. */
-    private void placeIfAir(Block block, Material material, List<Block> placed, List<BlockData> originals) {
-        if (!block.getType().isAir()) {
-            return;
-        }
-        originals.add(block.getBlockData());
-        block.setType(material, false);
-        placed.add(block);
+    /**
+     * Fills {@code block} only if it is currently empty air — for a wall, cage or patch that must never eat
+     * standing terrain. The lifetime and the undo are {@link TempTerrain}'s.
+     */
+    private boolean fillAir(Player caster, Block block, Material material, int lifetimeTicks) {
+        return block.getType().isAir()
+                && plugin.tempTerrain().place(caster, block, material, lifetimeTicks);
     }
 
-    /** Resurfaces an existing solid, non-liquid ground block with {@code material}, tracking the original for revert. Used for the dash's ice trail, which needs to swap the ground itself rather than fill a gap. */
-    private void resurface(Block block, Material material, List<Block> placed, List<BlockData> originals) {
+    /**
+     * Swaps the surface of an existing solid ground block — for the dash trail, which has to convert the
+     * floor rather than fill a gap above it.
+     * <p>
+     * Liquids are skipped because ice on water is a bridge, and a bridge that vanishes on a timer drops
+     * whoever is standing on it. The tile-entity and protected-block refusals that used to be missing here
+     * now come from {@link TempTerrain} rather than from a list this method maintains.
+     */
+    private boolean resurface(Player caster, Block block, Material material, int lifetimeTicks) {
         Material current = block.getType();
-        if (current.isAir() || block.isLiquid() || current == Material.BEDROCK || current == Material.BARRIER || current == material) {
-            return;
+        if (current.isAir() || block.isLiquid() || current == material) {
+            return false;
         }
-        originals.add(block.getBlockData());
-        block.setType(material, false);
-        placed.add(block);
-    }
-
-    private void revertAfter(List<Block> placed, List<BlockData> originals, int delayTicks) {
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            for (int i = 0; i < placed.size(); i++) {
-                Block block = placed.get(i);
-                if (block.getType() == Material.PACKED_ICE || block.getType() == Material.ICE || block.getType() == Material.POWDER_SNOW) {
-                    block.setBlockData(originals.get(i), false);
-                    Fx.blockBurst(block.getLocation().add(0.5, 0.5, 0.5), Material.PACKED_ICE, 10, 0.3);
-                }
-            }
-        }, delayTicks);
+        return plugin.tempTerrain().place(caster, block, material, lifetimeTicks);
     }
 
     @Override
@@ -224,8 +267,6 @@ public final class Cryoclasm extends Weapon {
         player.setVelocity(direction.clone().multiply(dashSpeed).setY(0.1));
         Fx.sound(player, castSound(), 1.0f, 1.2f);
 
-        List<Block> placed = new ArrayList<>();
-        List<BlockData> originals = new ArrayList<>();
         Set<UUID> alreadyHit = new HashSet<>();
 
         new BukkitRunnable() {
@@ -234,12 +275,13 @@ public final class Cryoclasm extends Weapon {
             @Override
             public void run() {
                 if (ticks >= dashDurationTicks || !player.isOnline()) {
-                    revertAfter(placed, originals, iceRevertTicks);
                     cancel();
                     return;
                 }
+                // Each block carries its own lifetime now, so the trail melts from the back as the player
+                // runs rather than all at once when the dash ends — which is also how it reads.
                 Block underfoot = player.getLocation().clone().subtract(0, 1, 0).getBlock();
-                resurface(underfoot, Material.PACKED_ICE, placed, originals);
+                resurface(player, underfoot, Material.PACKED_ICE, iceRevertTicks);
                 Fx.coloredBurst(player.getLocation(), ICE_BLUE, 1.2f, 8, 0.3);
                 for (Entity entity : world.getNearbyEntities(player.getLocation(), 1.3, 1.3, 1.3)) {
                     if (entity instanceof LivingEntity living && !entity.equals(player) && alreadyHit.add(living.getUniqueId())) {
@@ -275,17 +317,17 @@ public final class Cryoclasm extends Weapon {
         }
 
         Location feet = target.getLocation();
-        List<Block> placed = new ArrayList<>();
-        List<BlockData> originals = new ArrayList<>();
         BlockFace[] plus = {BlockFace.SELF, BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST};
         for (BlockFace face : plus) {
-            Block block = feet.getBlock().getRelative(face);
-            placeIfAir(block, Material.POWDER_SNOW, placed, originals);
+            fillAir(player, feet.getBlock().getRelative(face), Material.POWDER_SNOW, freezeRevertTicks);
         }
+        // The cold has to come from somewhere. Freezing a target also pulls the boss's stacks off the
+        // caster, which is the whole reason this is the Frost Queen's answer rather than just her theme:
+        // the ability the player was already pressing is the one that clears their Chill.
+        Counterplay.relieveMeters(plugin, player, 0);
         Fx.sound(target.getLocation(), Sound.BLOCK_POWDER_SNOW_BREAK, 1.0f, 0.8f);
         Fx.coloredBurst(feet.clone().add(0, 0.3, 0), ICE_BLUE, 1.6f, 24, freezeRadius);
         target.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, freezeSlowTicks, 2, false, true));
-        revertAfter(placed, originals, freezeRevertTicks);
     }
 
     @Override
@@ -297,20 +339,21 @@ public final class Cryoclasm extends Weapon {
                 : (direction.getZ() > 0 ? BlockFace.SOUTH : BlockFace.NORTH);
         BlockFace side = (face == BlockFace.NORTH || face == BlockFace.SOUTH) ? BlockFace.EAST : BlockFace.NORTH;
 
-        List<Block> placed = new ArrayList<>();
-        List<BlockData> originals = new ArrayList<>();
         Block base = origin.getBlock().getRelative(face, 2);
         int half = wallLength / 2;
 
         for (int length = -half; length <= half; length++) {
             for (int height = 0; height < wallHeight; height++) {
                 Block block = base.getRelative(side, length).getRelative(0, height, 0);
-                placeIfAir(block, Material.PACKED_ICE, placed, originals);
+                fillAir(player, block, Material.PACKED_ICE, wallDurationTicks);
             }
         }
+        // Planting a wall means planting your feet: the same cast firms up the ground under the caster, so
+        // an ice-floor phase has an answer that costs a cooldown rather than one that costs the fight.
+        Counterplay.fixFooting(plugin, player, configDouble("footing-radius", 2.5),
+                configInt("footing-ticks", 100));
         Fx.coloredBurst(base.getLocation().add(0.5, wallHeight * 0.5, 0.5), ICE_BLUE, 2.0f, 30, wallLength * 0.5);
         Fx.sound(player, castSound(), 1.0f, 0.9f);
-        revertAfter(placed, originals, wallDurationTicks);
     }
 
     @Override
@@ -338,8 +381,7 @@ public final class Cryoclasm extends Weapon {
         final LivingEntity victim = target;
 
         Location center = victim.getLocation();
-        List<Block> placed = new ArrayList<>();
-        List<BlockData> originals = new ArrayList<>();
+        List<Block> cage = new ArrayList<>();
         for (int x = -1; x <= 1; x++) {
             for (int y = 0; y <= 2; y++) {
                 for (int z = -1; z <= 1; z++) {
@@ -348,7 +390,11 @@ public final class Cryoclasm extends Weapon {
                         continue;
                     }
                     Block block = center.getBlock().getRelative(x, y, z);
-                    placeIfAir(block, Material.PACKED_ICE, placed, originals);
+                    // Lifetime set past the shatter so the cage cannot melt out from under its own payoff;
+                    // the shatter below reverts it early, and TempTerrain reaping it later is a no-op.
+                    if (fillAir(player, block, Material.PACKED_ICE, prisonDurationTicks + 20)) {
+                        cage.add(block);
+                    }
                 }
             }
         }
@@ -357,11 +403,11 @@ public final class Cryoclasm extends Weapon {
         victim.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, prisonDurationTicks, 6, false, true));
 
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            for (int i = 0; i < placed.size(); i++) {
-                Block block = placed.get(i);
-                if (block.getType() == Material.PACKED_ICE) {
-                    block.setBlockData(originals.get(i), false);
-                }
+            // The cage comes down at the shatter, not on its own timer: reverting through the ledger keeps
+            // the undo log and the world in agreement, where breaking the blocks would leave entries behind
+            // for positions that no longer hold ice.
+            for (Block block : cage) {
+                plugin.tempTerrain().revertNear(block.getLocation().add(0.5, 0.5, 0.5), 0.6);
             }
             if (!victim.isValid()) {
                 return;

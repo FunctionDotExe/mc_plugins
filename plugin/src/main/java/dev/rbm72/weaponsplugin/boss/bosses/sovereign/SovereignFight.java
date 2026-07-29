@@ -44,6 +44,8 @@ final class SovereignFight {
     private final EndCrystals crystals;
     private final Phantoms phantoms;
     private final Pistons pistons;
+    private final BanishPocket banishPocket;
+    private final EnderPearls enderPearls;
     private final PlayerMeter voidEcho;
 
     private BukkitTask watchdog;
@@ -59,6 +61,8 @@ final class SovereignFight {
         this.crystals = new EndCrystals(this);
         this.phantoms = new Phantoms(this);
         this.pistons = new Pistons(this);
+        this.banishPocket = new BanishPocket(this);
+        this.enderPearls = new EnderPearls(this);
         this.voidEcho = buildVoidEchoMeter(instance);
     }
 
@@ -80,9 +84,11 @@ final class SovereignFight {
                 .stacks(5)
                 .gain(MeterConditions.stationary(2.0), 8.0)
                 .cure(MeterConditions.moving(4.0), 20.0)
-                .threshold(MeterThresholds.banish(
-                        config.num("banish-hold-ticks", 140),
-                        config.dbl("banish-bleed-per-second", 2.0)),
+                .threshold(MeterThresholds.all(
+                        MeterThresholds.banish(
+                                config.num("banish-hold-ticks", 140),
+                                config.dbl("banish-bleed-per-second", 2.0)),
+                        (meter, player) -> banishPocket.bind(player)),
                         0.0)
                 .thresholdCooldown(config.dbl("echo-threshold-cooldown-seconds", 10.0))
                 .warnAt(0.6)
@@ -129,6 +135,10 @@ final class SovereignFight {
         return pistons;
     }
 
+    EnderPearls enderPearls() {
+        return enderPearls;
+    }
+
     PlayerMeter voidEcho() {
         return voidEcho;
     }
@@ -166,6 +176,11 @@ final class SovereignFight {
             crystals.discard();
             phantoms.discard();
             pistons.discard();
+            // Both were previously left out: the pearl handler is a plugin-manager-registered listener
+            // that outlives the fight unless it is unregistered here, and the echo trail can be holding
+            // armed BlockDisplay markers at the moment the fight ends.
+            enderPearls.discard();
+            echoTrail.clear();
         } catch (Exception e) {
             plugin.getLogger().log(Level.SEVERE,
                     "Void Sovereign fight teardown threw — the arena ledger still restores its terrain.", e);

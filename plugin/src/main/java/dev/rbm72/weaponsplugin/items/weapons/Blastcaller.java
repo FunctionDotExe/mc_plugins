@@ -4,18 +4,16 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.items.kit.Props;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Sound;
-import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.TNTPrimed;
-import org.bukkit.persistence.PersistentDataType;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
 import java.util.HashMap;
@@ -27,7 +25,7 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * Demolitions weapon built entirely on the real {@link TNTPrimed} entity instead of a fake AoE
  * timer: every charge is genuine vanilla TNT with a real fuse, real gravity, and a real explosion —
- * only the block destruction is stripped out (via {@code TntWeaponListener}) so entity damage,
+ * only the block destruction is stripped out (via {@code WeaponPropListener}) so entity damage,
  * knockback, and the blinking-fuse look stay 100% authentic without cratering the map.
  */
 public final class Blastcaller extends Weapon {
@@ -171,18 +169,12 @@ public final class Blastcaller extends Weapon {
     }
 
     private TNTPrimed spawnCharge(Player owner, Location at, Vector velocity, int fuseTicks, float power) {
-        World world = at.getWorld();
-        if (world == null) {
+        if (at.getWorld() == null) {
             return null;
         }
-        TNTPrimed tnt = world.spawn(at, TNTPrimed.class, primed -> {
-            primed.setFuseTicks(fuseTicks);
-            primed.setYield(power * (float) rarity().statMultiplier());
-            primed.setIsIncendiary(false);
-            primed.setSource(owner);
-            primed.setVelocity(velocity);
-            primed.getPersistentDataContainer().set(Weapon.idKey(plugin), PersistentDataType.STRING, id());
-        });
+        TNTPrimed tnt = Props.tnt(plugin, this, owner, at, velocity, fuseTicks);
+        tnt.setYield(power * (float) rarity().statMultiplier());
+        tnt.setIsIncendiary(false);
         activeCharge.put(owner.getUniqueId(), tnt);
         Fx.sound(at, castSound(), 1.0f, 1.0f);
         return tnt;

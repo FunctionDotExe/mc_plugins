@@ -218,7 +218,9 @@ final class CrownShards {
         if (world != null) {
             // The throne visibly re-forms, one block per shard, so progress is readable from across the
             // arena without anyone having to look at a bar.
-            Block block = world.getBlockAt(dais.getBlockX() + seated - 1, dais.getBlockY(), dais.getBlockZ());
+            // Offset starts at +1, not +0: the dais block itself is where the throne bell lives
+            // (see ThroneBell#raise), and a seated-shard block there would silently fail to place.
+            Block block = world.getBlockAt(dais.getBlockX() + seated, dais.getBlockY(), dais.getBlockZ());
             if (Grief.setMechanicBlock(fight.griefContext(), block, SEATED_BLOCK)) {
                 seatedBlocks.add(block);
             }

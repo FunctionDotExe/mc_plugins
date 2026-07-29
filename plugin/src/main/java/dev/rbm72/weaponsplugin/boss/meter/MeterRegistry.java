@@ -195,6 +195,19 @@ public final class MeterRegistry {
         return null;
     }
 
+    /**
+     * Every meter this fight has attached.
+     * <p>
+     * Exists for {@link dev.rbm72.weaponsplugin.items.kit.Counterplay}, which answers the boss verb
+     * "you are carrying a stack that armour and healing cannot touch" without knowing which of the four
+     * skins is on the player — a boss drop reads as "this shakes off whatever the boss is stacking on
+     * you", not as "this specifically clears Chill". A copy, so a caller iterating it while a fight tears
+     * down cannot trip over {@link #detachAll} clearing the live list.
+     */
+    public List<PlayerMeter> meters() {
+        return List.copyOf(meters);
+    }
+
     public boolean isEmpty() {
         return meters.isEmpty();
     }

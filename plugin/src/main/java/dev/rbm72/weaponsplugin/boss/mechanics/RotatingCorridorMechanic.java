@@ -94,7 +94,7 @@ public final class RotatingCorridorMechanic extends TickingMechanic {
                 continue;
             }
             if (elapsedTicks % 20 == 0) {
-                hurt(player, damagePerSecond);
+                tickHurt(player, damagePerSecond);
                 Fx.coloredBurst(player.getLocation().add(0, 1, 0), burnColor, 1.4f, 14, 0.4);
                 Fx.sound(player.getLocation(), Sound.ENTITY_GENERIC_BURN, 0.8f, 0.9f);
             }

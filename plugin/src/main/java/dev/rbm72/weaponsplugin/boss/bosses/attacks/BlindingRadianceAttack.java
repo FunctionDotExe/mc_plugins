@@ -119,7 +119,7 @@ public final class BlindingRadianceAttack extends BossAttack {
                                 double playerAngle = Math.atan2(toPlayer.getZ(), toPlayer.getX());
                                 double diff = Math.abs(normalizeAngle(playerAngle - angle));
                                 if (diff <= Math.toRadians(beamWidthDegrees / 2) && !hasCoverBetween(bossLoc, player.getLocation())) {
-                                    player.damage(beamDamagePerTick, ctx.boss());
+                                    tickHurt(ctx, player, beamDamagePerTick);
                                     hits++;
                                 }
                             }

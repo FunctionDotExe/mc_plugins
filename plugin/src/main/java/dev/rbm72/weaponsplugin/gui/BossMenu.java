@@ -90,7 +90,7 @@ public final class BossMenu {
         int start = page * PAGE_SIZE;
         int end = Math.min(start + PAGE_SIZE, bosses.size());
         for (int i = start; i < end; i++) {
-            inventory.setItem(i - start, icon(plugin, bosses.get(i)));
+            inventory.setItem(i - start, icon(plugin, viewer, bosses.get(i)));
         }
 
         ItemStack filler = MenuStyle.filler();
@@ -125,10 +125,10 @@ public final class BossMenu {
         return clicked.getItemMeta().getPersistentDataContainer().get(bossIdKey(plugin), PersistentDataType.STRING);
     }
 
-    private static ItemStack icon(WeaponsPlugin plugin, Boss boss) {
+    private static ItemStack icon(WeaponsPlugin plugin, Player viewer, Boss boss) {
         BossManager manager = plugin.bossManager();
         boolean live = manager.isLive(boss.id());
-        boolean hardMode = manager.isHardMode(boss.id());
+        List<String> affixes = manager.modifiers().names(boss.id());
 
         ItemStack item = new ItemStack(ICONS.getOrDefault(boss.id(), Material.SKELETON_SKULL));
         ItemMeta meta = item.getItemMeta();
@@ -146,9 +146,29 @@ public final class BossMenu {
         lore.add(Component.text("Phases: ", NamedTextColor.GRAY)
                 .append(Component.text(boss.phases().size(), NamedTextColor.WHITE))
                 .decoration(TextDecoration.ITALIC, false));
-        lore.add(Component.text("Hard mode: ", NamedTextColor.GRAY)
-                .append(hardMode ? Component.text("ENABLED", NamedTextColor.RED) : Component.text("off", NamedTextColor.WHITE))
+        lore.add(Component.text("Affixes: ", NamedTextColor.GRAY)
+                .append(affixes.isEmpty()
+                        ? Component.text("none", NamedTextColor.WHITE)
+                        : Component.text(String.join(", ", affixes), NamedTextColor.RED))
                 .decoration(TextDecoration.ITALIC, false));
+
+        // The viewer's own history and the clear gate, in the place they are already looking before a
+        // pull. A gate that only announces itself by refusing you at the door tells you nothing about
+        // what to go and do instead.
+        var record = plugin.bossProgress().record(viewer.getUniqueId(), boss.id());
+        lore.add(Component.text("Your kills: ", NamedTextColor.GRAY)
+                .append(Component.text(record.kills() == 0 ? "never beaten" : String.valueOf(record.kills()),
+                        record.kills() == 0 ? NamedTextColor.WHITE : NamedTextColor.AQUA))
+                .decoration(TextDecoration.ITALIC, false));
+        int required = boss.requiredClears();
+        if (required > 0) {
+            int have = plugin.bossProgress().progress(viewer.getUniqueId()).distinctClearsExcluding(boss.id());
+            lore.add((have >= required
+                    ? Component.text("Clear gate: open (" + have + "/" + required + ")", NamedTextColor.GREEN)
+                    : Component.text("Clear gate: LOCKED (" + have + "/" + required + " bosses beaten)",
+                            NamedTextColor.RED))
+                    .decoration(TextDecoration.ITALIC, false));
+        }
 
         lore.add(Component.empty());
         lore.add(Component.text("Loot:", NamedTextColor.GOLD).decoration(TextDecoration.ITALIC, false));
@@ -172,7 +192,7 @@ public final class BossMenu {
             lore.add(Component.text("Click to spawn at your location", NamedTextColor.GREEN)
                     .decoration(TextDecoration.ITALIC, false));
         }
-        lore.add(Component.text("Shift-click to toggle hard mode", NamedTextColor.DARK_GRAY)
+        lore.add(Component.text("Shift-click to toggle hard mode · /bossaffix for the rest", NamedTextColor.DARK_GRAY)
                 .decoration(TextDecoration.ITALIC, false));
         lore.add(Component.empty());
         lore.add(MenuStyle.border(NamedTextColor.DARK_RED));

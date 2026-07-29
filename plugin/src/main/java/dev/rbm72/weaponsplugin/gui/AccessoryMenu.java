@@ -8,18 +8,21 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Accessory screen: the top row is a catalog (ops click to grab a copy, like
- * the weapon menu), the middle band holds the player's equip slots. Clicking an
- * accessory in your own inventory equips it; clicking an equipped one unequips.
+ * Accessory screen: the top row is a paginated catalog (ops click to grab a copy, like the weapon
+ * menu — the roster long since outgrew a single fixed row), the bottom row holds the prev/next page
+ * controls, and the middle band holds the player's equip slots. Clicking an accessory in your own
+ * inventory equips it; clicking an equipped one unequips.
  */
 public final class AccessoryMenu {
 
@@ -27,30 +30,43 @@ public final class AccessoryMenu {
     private static final int SIZE = 54;
     private static final int LABEL_SLOT = 19;
     /** The player's equip slots, one per {@link AccessoryManager#MAX_SLOTS}. */
-    public static final int[] EQUIP_SLOTS = {21, 22, 23, 24};
+    public static final int[] EQUIP_SLOTS = {20, 21, 22, 23, 24};
+
+    private static final int PAGE_SIZE = 9;
+    private static final int PREV_PAGE_SLOT = 45;
+    private static final int PAGE_INDICATOR_SLOT = 49;
+    private static final int NEXT_PAGE_SLOT = 53;
 
     private AccessoryMenu() {
+    }
+
+    private static NamespacedKey pageDeltaKey(WeaponsPlugin plugin) {
+        return new NamespacedKey(plugin, "accessory_menu_page_delta");
     }
 
     public static Inventory open(WeaponsPlugin plugin, Player viewer) {
         AccessoryMenuHolder holder = new AccessoryMenuHolder();
         Inventory inventory = Bukkit.createInventory(holder, SIZE, TITLE);
         holder.setInventory(inventory);
-        render(plugin, viewer, inventory);
+        render(plugin, viewer, holder);
         return inventory;
     }
 
-    public static void render(WeaponsPlugin plugin, Player viewer, Inventory inventory) {
+    public static void render(WeaponsPlugin plugin, Player viewer, AccessoryMenuHolder holder) {
+        Inventory inventory = holder.getInventory();
         inventory.clear();
 
         boolean unlocked = viewer.hasPermission("weaponsplugin.give");
-        int slot = 0;
-        for (Accessory accessory : plugin.accessoryRegistry().all()) {
-            if (slot > 8) {
-                break;
-            }
-            inventory.setItem(slot, unlocked ? accessory.createItem() : MenuStyle.lockedIcon());
-            slot++;
+        List<Accessory> all = new ArrayList<>(plugin.accessoryRegistry().all());
+
+        int totalPages = Math.max(1, (all.size() + PAGE_SIZE - 1) / PAGE_SIZE);
+        int page = Math.max(0, Math.min(holder.page(), totalPages - 1));
+        holder.setPage(page);
+
+        int start = page * PAGE_SIZE;
+        int end = Math.min(start + PAGE_SIZE, all.size());
+        for (int i = start; i < end; i++) {
+            inventory.setItem(i - start, unlocked ? all.get(i).createItem() : MenuStyle.lockedIcon());
         }
 
         inventory.setItem(LABEL_SLOT, label());
@@ -71,6 +87,24 @@ public final class AccessoryMenu {
                 inventory.setItem(i, filler);
             }
         }
+
+        inventory.setItem(PREV_PAGE_SLOT, page > 0 ? MenuStyle.prevPageButton(pageDeltaKey(plugin)) : filler);
+        inventory.setItem(PAGE_INDICATOR_SLOT, MenuStyle.pageIndicator(page, totalPages));
+        inventory.setItem(NEXT_PAGE_SLOT, page < totalPages - 1 ? MenuStyle.nextPageButton(pageDeltaKey(plugin)) : filler);
+    }
+
+    public static boolean isPageButton(WeaponsPlugin plugin, ItemStack clicked) {
+        return clicked != null && clicked.hasItemMeta()
+                && clicked.getItemMeta().getPersistentDataContainer().has(pageDeltaKey(plugin), PersistentDataType.INTEGER);
+    }
+
+    public static int readPageDelta(WeaponsPlugin plugin, ItemStack clicked) {
+        if (clicked == null || !clicked.hasItemMeta()) {
+            return 0;
+        }
+        Integer delta = clicked.getItemMeta().getPersistentDataContainer()
+                .get(pageDeltaKey(plugin), PersistentDataType.INTEGER);
+        return delta == null ? 0 : delta;
     }
 
     /** Which equip index a raw slot corresponds to, or -1 if the slot isn't an equip slot. */

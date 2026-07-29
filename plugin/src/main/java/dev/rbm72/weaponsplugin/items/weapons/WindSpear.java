@@ -1,9 +1,12 @@
 package dev.rbm72.weaponsplugin.items.weapons;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.items.kit.Counterplay;
+import dev.rbm72.weaponsplugin.items.kit.Props;
 import dev.rbm72.weaponsplugin.status.StatusEffectManager;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -21,12 +24,16 @@ import org.bukkit.util.Vector;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Launches the player forward in a rising tornado arc, briefly launching
- * anything it slashes into the air, then bursts outward on landing.
+ * Launches the player forward in a rising tornado arc, briefly launching anything it slashes into the air,
+ * then bursts outward on landing.
+ * <p>
+ * Rebuilt on real {@link org.bukkit.entity.WindCharge}s per batch-1 §0.1 — see {@link #ability1} for what the
+ * particle version was doing and why the charges replace it rather than decorate it.
  */
 public final class WindSpear extends Weapon {
 
@@ -105,9 +112,47 @@ public final class WindSpear extends Weapon {
     }
 
     @Override
+    public Map<CooldownManager.Slot, Double> damageProfile() {
+        // The landing burst is half the flight's damage and shares its cooldown, so the slot is worth 1.5x
+        // the configured figure — costing only the pass-through would under-report the ability by a third.
+        return Map.of(CooldownManager.Slot.ABILITY1, abilityDamage * 1.5);
+    }
+
+    /**
+     * <b>Counterplay.</b> A wind weapon answers being thrown. The vault cancels whatever velocity a boss
+     * just put on the player before adding its own, so it is the tool you reach for during a gust or
+     * wing-buffet phase rather than a mobility ability that gets overridden by one.
+     */
+    @Override
+    public Set<CounterVerb> counterVerbs() {
+        return Set.of(CounterVerb.DISPLACEMENT);
+    }
+
+    /**
+     * Gale Vault — a real wind charge under the player, and a trail of real wind charges behind them.
+     * <p>
+     * §0.1's wind row names the object outright: "real wind charges, velocity shoves, falling blocks blown
+     * across the arena". This ability was the opposite of that — four stacked {@code Particle.CLOUD} helix
+     * frames drawn every tick to make "a genuine tornado column", with a {@code damage()} loop and a manual
+     * {@code setVelocity} doing the actual work behind them. Deleting the four helix calls left the ability
+     * fully functional, which is the §0.1 test failed.
+     * <p>
+     * Now the column is wind charges dropped along the flight path. Each one bursts on its own, shoves
+     * whatever is near it with vanilla's own falloff, and is audible and visible without a particle budget —
+     * and the tornado is something bystanders can be caught by rather than something only the caster's
+     * client draws. The damage loop stays, because a spear passing through someone should cut them; what it
+     * no longer does is supply the knockback the charges are already producing.
+     */
+    @Override
     public void ability1(Player player) {
+        // The boss's throw is cancelled before ours is added; two shoves composing is an uncontrolled launch.
+        Counterplay.plant(plugin, player, 0);
+
         Vector direction = player.getLocation().getDirection().normalize();
-        player.setVelocity(direction.clone().multiply(launchSpeed).setY(0.6));
+        // The launch itself is a wind charge fired down at the player's feet — vanilla's own launcher, which
+        // composes correctly with anything else writing their velocity this tick.
+        Props.windCharge(plugin, this, player, player.getLocation().clone().add(0, 0.1, 0),
+                direction.clone().multiply(launchSpeed * 0.25).setY(-0.7));
 
         double effectiveDamage = abilityDamage * rarity().statMultiplier();
         Set<UUID> alreadyHit = new HashSet<>();
@@ -127,14 +172,15 @@ public final class WindSpear extends Weapon {
                 }
 
                 Location center = player.getLocation();
-                // Four stacked helix layers form a genuine tornado column instead of two
-                // thin spiral lines.
-                Fx.helixFrame(center, Particle.CLOUD, 0.8, 3, angle, 0.6);
-                Fx.helixFrame(center, Particle.CLOUD, 0.8, 3, angle, 0.0);
-                Fx.helixFrame(center, Particle.CLOUD, 0.8, 3, angle, -0.6);
-                Fx.helixFrame(center, Particle.CLOUD, 0.8, 3, angle, -1.2);
+                // A charge every third tick, thrown out sideways on a rotating angle: the column is made of
+                // real bursts spiralling out behind the flight, not of a spiral drawn around it. Throttled
+                // because one wind charge per tick is both an entity flood and a wall of burst sounds.
+                if (ticks % 3 == 0) {
+                    Vector out = new Vector(Math.cos(angle), -0.25, Math.sin(angle)).normalize().multiply(0.35);
+                    Props.windCharge(plugin, WindSpear.this, player, center.clone().add(0, 0.5, 0), out);
+                    angle += Math.PI / 3;
+                }
                 Fx.coloredBurst(center.clone().add(0, 0.4, 0), GUST_COLOR, 1.6f, 10, 0.8);
-                angle += Math.PI / 3;
 
                 for (Entity nearby : player.getNearbyEntities(hitRadius, hitRadius, hitRadius)) {
                     if (!(nearby instanceof LivingEntity entity)) {
@@ -153,8 +199,9 @@ public final class WindSpear extends Weapon {
                     Fx.bloodSpray(entity.getLocation().add(0, 1, 0));
                     Fx.sound(entity.getLocation(), hitSound(), 1.0f, 1.0f);
 
-                    Vector knockback = direction.clone().multiply(1.0).setY(0.4);
-                    entity.setVelocity(entity.getVelocity().add(knockback));
+                    // No manual knockback: the wind charges spiralling out of the column are already doing
+                    // it, and stacking a hand-written shove on top produced the launch that made this
+                    // ability throw enemies further than the spear ever travelled.
                 }
 
                 ticks++;
@@ -162,11 +209,14 @@ public final class WindSpear extends Weapon {
         }.runTaskTimer(plugin, 0L, 1L);
     }
 
+    /**
+     * The touchdown: one real wind charge straight into the ground, which is what the four expanding
+     * particle rings were standing in for.
+     */
     private void landingBurst(Player player) {
         Location loc = player.getLocation();
-        Fx.expandingRings(plugin, loc, Particle.CLOUD, 5.0, 4, 2L);
+        Props.windCharge(plugin, this, player, loc.clone().add(0, 1.2, 0), new Vector(0, -1.2, 0));
         Fx.coloredBurst(loc.clone().add(0, 0.3, 0), GUST_COLOR, 1.7f, 30, 1.2);
-        Fx.coloredBurst(loc.clone().add(0, 1.0, 0), GUST_COLOR, 1.3f, 16, 1.0);
         Fx.sound(player, Sound.ENTITY_PLAYER_ATTACK_KNOCKBACK, 1.0f, 0.8f);
 
         double burstDamage = abilityDamage * rarity().statMultiplier() * 0.5;
@@ -178,11 +228,6 @@ public final class WindSpear extends Weapon {
             entity.damage(burstDamage, player);
             Fx.bloodSpray(entity.getLocation().add(0, 1, 0));
 
-            Vector away = entity.getLocation().toVector().subtract(loc.toVector());
-            if (away.lengthSquared() < 0.01) {
-                away = new Vector(1, 0, 0);
-            }
-            entity.setVelocity(away.normalize().multiply(0.8).setY(0.3));
         }
     }
 }

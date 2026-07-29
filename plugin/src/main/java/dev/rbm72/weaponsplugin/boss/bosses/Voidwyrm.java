@@ -7,16 +7,12 @@ import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
 import dev.rbm72.weaponsplugin.boss.events.CollapsingOrbEvent;
 import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
-import dev.rbm72.weaponsplugin.boss.mechanics.FalseGroundMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.ForceFieldMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.RotatingCorridorMechanic;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.MeteorCallAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.StarfallNovaAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.VoidBreathAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.WyrmDiveAttack;
+import dev.rbm72.weaponsplugin.boss.bosses.wyrm.WyrmPhases;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.weapons.Starfang;
 import net.kyori.adventure.text.Component;
@@ -38,9 +34,14 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * The Voidwyrm — spawns as a wyrmling barely bigger than a player and grows every phase, ending
- * Full Coronation as an ancient, screen-filling dragon. Size is the entire arc of this fight: the
- * attacks get scarier, but it's watching the thing physically grow that sells the escalation.
+ * The Voidwyrm — the roster's category-shifting boss (batch-4 §1.1). Not one fight that escalates but
+ * four different fights wearing one name: a chase it flees ({@code WyrmlingPhase}), an ambush from
+ * underground ({@code BurrowerPhase}), a multi-segment serpent whose coiling body is the terrain
+ * ({@code SerpentPhase}), and a swallow-and-fight-from-inside finale ({@code AncientPhase}). Every
+ * collaborating system lives in {@code bosses.wyrm}; this class only wires phases, attacks, loot and
+ * flavor together. False Ground — real, faintly-marked illusory floor patches — runs underneath all
+ * four phases (composed inside {@code WyrmPhaseMechanic}, not authored here), the one constant thread
+ * across a fight that otherwise changes what kind of encounter it is three separate times.
  */
 public final class Voidwyrm extends Boss {
 
@@ -56,34 +57,34 @@ public final class Voidwyrm extends Boss {
         super(plugin);
 
         VoidBreathAttack voidBreath = new VoidBreathAttack(plugin);
-        MeteorCallAttack meteorCall = new MeteorCallAttack(plugin);
         WyrmDiveAttack wyrmDive = new WyrmDiveAttack(plugin);
         StarfallNovaAttack starfallNova = new StarfallNovaAttack(plugin);
 
         this.phases = List.of(
-                // False Ground: its signature. Parts of the floor are illusion, faintly marked the
-                // whole time and obvious only in the second before they go. It rewards looking at the
-                // arena early rather than reacting fast late — which nothing else in the roster does.
+                // The Wyrmling: tiny, fast, actively evasive. Won't stand and fight — the group has to
+                // trap it with arena geometry and arena-supplied blocks before it's meaningfully hittable.
                 new BossPhase("The Wyrmling", 1.0,
                         List.of(voidBreath, wyrmDive),
                         false, Voidwyrm::onEnterPhase1,
-                        this::falseGround),
-                // Ungated: no mechanic, just a growing wyrm and its whole kit. Pure race.
-                new BossPhase("The Growing Wyrm", 0.75,
-                        List.of(voidBreath, wyrmDive, meteorCall),
-                        false, Voidwyrm::onEnterPhase2),
-                // Void Breath Corridor: the breath covers everything except one rotating lane, so the
-                // whole phase is fought orbiting it at exactly the speed the lane turns.
-                new BossPhase("The Elder Wyrm", 0.40,
-                        List.of(voidBreath, wyrmDive, meteorCall),
+                        instance -> WyrmPhases.wyrmling(instance, 0.78)),
+                // The Burrower: it goes underground, real tunnels open in the floor, and it erupts under
+                // whoever it was tracking. A group that reads the tremor meets it at the surfacing point.
+                new BossPhase("The Burrower", 0.78,
+                        List.of(voidBreath, wyrmDive),
+                        false, Voidwyrm::onEnterPhase2,
+                        instance -> WyrmPhases.burrower(instance, 0.54)),
+                // The Serpent: it surfaces fully as a long segmented body that coils through the arena —
+                // the body itself is now terrain, and only a migrating subset of segments is vulnerable.
+                new BossPhase("The Serpent", 0.54,
+                        List.of(voidBreath),
                         false, Voidwyrm::onEnterPhase3,
-                        this::voidBreathCorridor),
-                // Its coronation opens the void under the arena: a permanent inward drag with a lethal
-                // core, so its last stand is fought while constantly losing ground.
-                new BossPhase("Full Coronation", 0.15,
-                        List.of(voidBreath, wyrmDive, meteorCall, starfallNova),
+                        instance -> WyrmPhases.serpent(instance, 0.28)),
+                // The Ancient: full size, ringed by its own coiled body, periodically swallowing a
+                // player into a real interior space they have to break their way out of from within.
+                new BossPhase("The Ancient", 0.28,
+                        List.of(voidBreath, starfallNova),
                         true, Voidwyrm::onEnterEnrage,
-                        this::theOpenVoid));
+                        WyrmPhases::ancient));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new Starfang(plugin).createItem())
@@ -125,54 +126,21 @@ public final class Voidwyrm extends Boss {
     }
 
     /**
-     * False Ground: its signature. A few patches of floor are illusion, shimmering faintly the whole
-     * time and only obvious in the second before they drop. Patches re-roll after every collapse, so
-     * the map cannot be memorised — and one cheap fall teaches the tell for good.
+     * Four times the roster default, same reasoning as the Fallen King: cornering it, tracking a burrow,
+     * cracking a migrating segment and surviving the swallow are physical acts under pressure rather
+     * than a burst window, and every phase's {@code progressSignal} resets the clock on partial headway.
      */
-    private PhaseMechanic falseGround(BossInstance instance) {
-        return new FalseGroundMechanic(instance, "False Ground", STARLIGHT,
-                configInt("false-ground-patches", 4),
-                configDouble("false-ground-radius", 3.4),
-                configInt("false-ground-cycle-ticks", 240),
-                configInt("false-ground-reveal-ticks", 50),
-                configDouble("false-ground-plunge-damage", 16.0),
-                configInt("false-ground-disorient-ticks", 70),
-                configDouble("false-ground-placement-fraction", 0.75));
+    @Override
+    public int phaseFloorTimeoutMs() {
+        return configInt("phase-floor-timeout-ms", 180_000);
     }
 
-    /**
-     * Void Breath Corridor: everything except one rotating lane is inside the breath, and the lane
-     * reverses without warning. The only mechanic in the roster where safety is an angle rather than
-     * a place, so the group orbits continuously instead of running to somewhere.
-     */
-    private PhaseMechanic voidBreathCorridor(BossInstance instance) {
-        return new RotatingCorridorMechanic(instance, "Void Breath", STARLIGHT, VOID_PURPLE,
-                configDouble("corridor-half-width-degrees", 42.0),
-                configDouble("corridor-degrees-per-second", 26.0),
-                configDouble("corridor-inner-radius", 3.5),
-                configDouble("corridor-damage-per-second", 8.0),
-                configInt("corridor-reverse-interval-ticks", 260));
-    }
-
-    /**
-     * The Open Void: a permanent inward drag with a lethal core at the middle. Nothing is blocked —
-     * it simply costs ground continuously, which sharpens every telegraph the wyrm still has.
-     */
-    private PhaseMechanic theOpenVoid(BossInstance instance) {
-        return new ForceFieldMechanic(instance, "The Open Void", VOID_PURPLE,
-                ForceFieldMechanic.Direction.INWARD, ForceFieldMechanic.Focus.ARENA_CENTRE,
-                configDouble("open-void-pull-per-tick", 0.06),
-                configDouble("open-void-core-radius", 5.0),
-                configDouble("open-void-core-damage-per-second", 10.0),
-                null);
-    }
-
-    /** Offset from its phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
+    /** Offset from its phase boundaries (0.78 / 0.54 / 0.28) so they land mid-phase, not on transitions. */
     @Override
     public List<BossEvent> events() {
         return List.of(
-                new HitCountShieldEvent(plugin, id(), new double[] {0.88, 0.32}),
-                new CollapsingOrbEvent(plugin, id(), new double[] {0.62, 0.26}));
+                new HitCountShieldEvent(plugin, id(), new double[] {0.88, 0.40}),
+                new CollapsingOrbEvent(plugin, id(), new double[] {0.66, 0.20}));
     }
 
     @Override
@@ -211,6 +179,9 @@ public final class Voidwyrm extends Boss {
         Fx.coloredBurst(loc.clone().add(0, 1, 0), VOID_PURPLE, 1.4f, 30, 0.6);
         Fx.burst(loc.clone().add(0, 1, 0), Particle.PORTAL, 24, 0.5);
         Fx.sound(loc, Sound.ENTITY_ENDER_DRAGON_AMBIENT, 1.0f, 1.4f);
+        instance.showTitle(
+                Component.text("The Wyrmling", NamedTextColor.LIGHT_PURPLE).decoration(TextDecoration.BOLD, true),
+                Component.text("It won't fight you — corner it", NamedTextColor.GRAY));
     }
 
     private static void onEnterPhase2(BossInstance instance) {
@@ -220,8 +191,8 @@ public final class Voidwyrm extends Boss {
         Fx.expandingRings(instance.plugin(), loc, Particle.PORTAL, 6.5, 3, 2L);
         Fx.sound(loc, Sound.ENTITY_ENDER_DRAGON_GROWL, 1.1f, 1.0f);
         instance.showTitle(
-                Component.text("The Growing Wyrm", NamedTextColor.LIGHT_PURPLE).decoration(TextDecoration.BOLD, true),
-                Component.text("It's already bigger than it was a moment ago", NamedTextColor.GRAY));
+                Component.text("The Burrower", NamedTextColor.LIGHT_PURPLE).decoration(TextDecoration.BOLD, true),
+                Component.text("It's already bigger — and about to go under", NamedTextColor.GRAY));
     }
 
     private static void onEnterPhase3(BossInstance instance) {
@@ -231,8 +202,8 @@ public final class Voidwyrm extends Boss {
         Fx.burst(loc.clone().add(0, 1.4, 0), Particle.PORTAL, 40, 0.7);
         Fx.sound(loc, Sound.ENTITY_ENDER_DRAGON_GROWL, 1.2f, 0.8f);
         instance.showTitle(
-                Component.text("The Elder Wyrm", NamedTextColor.DARK_PURPLE).decoration(TextDecoration.BOLD, true),
-                Component.text("Ancient carapace hardens over its hide", NamedTextColor.GRAY));
+                Component.text("The Serpent", NamedTextColor.DARK_PURPLE).decoration(TextDecoration.BOLD, true),
+                Component.text("Only the cracked segments can be hurt", NamedTextColor.GRAY));
     }
 
     private static void onEnterEnrage(BossInstance instance) {

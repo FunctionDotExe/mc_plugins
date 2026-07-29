@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.boss.meter;
 
 import dev.rbm72.weaponsplugin.boss.BossInstance;
+import dev.rbm72.weaponsplugin.boss.TickDamage;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
@@ -216,13 +217,13 @@ public final class MeterAfflictions {
      * The hold's bleed. With no usable boss the damage still lands — a hold that stopped hurting the
      * moment the boss blinked out would be a free escape from a threshold — but it lands unattributed
      * rather than credited to something that no longer exists.
+     * <p>
+     * Routed through {@link TickDamage} because this is the archetypal case it exists for: a held
+     * player is already rooted and blind, and adding a hurt tilt every pulse on top of that was
+     * unreadable. See that class for why the vanilla damage pipeline is the wrong tool for a bleed.
      */
     private void bleed(Player player, double amount, LivingEntity source) {
-        if (source == null) {
-            player.damage(amount);
-        } else {
-            player.damage(amount, source);
-        }
+        TickDamage.apply(player, amount, source);
     }
 
     /**

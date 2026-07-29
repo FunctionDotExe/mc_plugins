@@ -146,7 +146,7 @@ public final class TrappedAlliesMechanic extends TickingMechanic {
 
             captive.heldTicks += TICK_INTERVAL;
             if (captive.heldTicks % 20 == 0) {
-                hurt(player, damagePerSecondHeld);
+                tickHurt(player, damagePerSecondHeld);
                 Fx.sound(player.getLocation(), Sound.ENTITY_PLAYER_HURT_FREEZE, 0.7f, 1.4f);
             }
             if (elapsedTicks % 6 == 0) {

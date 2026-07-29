@@ -6,6 +6,7 @@ import dev.rbm72.weaponsplugin.boss.AttackContext;
 import dev.rbm72.weaponsplugin.boss.BossAttack;
 import dev.rbm72.weaponsplugin.boss.BossAudio;
 import dev.rbm72.weaponsplugin.boss.grief.Grief;
+import dev.rbm72.weaponsplugin.boss.mechanics.SoloEscape;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.text.Component;
@@ -27,13 +28,22 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * The Frost Queen's signature: she doesn't hide behind wards, she takes a player hostage. She
  * encases one random player solid — they can't act at all — and it's on their teammates to stand
- * beside them and channel body heat back into them before the cold finishes the job. A solo player
- * gets no rescue and has to just outlast it. Free them in time and she's left cracked open; fail
- * and the frozen player takes the full brunt. A rescue-or-suffer check, not another totem ring.
+ * beside them and channel body heat back into them before the cold finishes the job. Free them in time
+ * and she's left cracked open; fail and the frozen player takes the full brunt. A rescue-or-suffer check,
+ * not another totem ring.
+ * <p>
+ * Solo, the frozen player struggles out themselves — hold sneak, at twice the channel length (see
+ * {@link SoloEscape}). This previously had no solo path at all: a lone player could do nothing but watch
+ * the timer run out, which made every cast an unavoidable 20-damage hit rather than a mechanic. That is
+ * the failure mode batch-1 rule 0.2 #7 names explicitly — a mechanic disabled for solo play is still a
+ * two-player requirement, it just hides the wall behind a countdown.
  */
 public final class FrozenHeartAttack extends BossAttack {
 
     private static final Color FROST_BLUE = Color.fromRGB(150, 220, 255);
+
+    /** How much longer struggling out alone takes than being freed by an ally — see {@link SoloEscape}. */
+    private static final double SOLO_CHANNEL_MULTIPLIER = 2.0;
 
     private final int telegraphTicks;
     private final int durationTicks;
@@ -106,15 +116,26 @@ public final class FrozenHeartAttack extends BossAttack {
                                 cancel();
                                 return;
                             }
-                            boolean rescuerPresent = Arena.combatants(frozen.getLocation(), 3.0).stream()
-                                    .anyMatch(p -> !p.equals(frozen));
+                            boolean alone = SoloEscape.alone(ctx.instance(), frozen);
+                            boolean rescuerPresent = alone
+                                    ? SoloEscape.struggling(frozen)
+                                    : Arena.combatants(frozen.getLocation(), 3.0).stream()
+                                            .anyMatch(p -> !p.equals(frozen));
                             if (rescuerPresent) {
                                 channelTicks++;
                                 if (ticks % 5 == 0) {
                                     Fx.coloredBurst(frozen.getLocation().add(0, 1, 0), Color.fromRGB(255, 200, 120), 0.8f, 8, 0.2);
                                 }
+                            } else if (alone && ticks % 20 == 0) {
+                                plugin.actionBarHub().flash(frozen, SoloEscape.prompt(), 1200,
+                                        ActionBarHub.PRIORITY_NOTICE);
                             }
-                            if (channelTicks >= channelTicksNeeded) {
+                            // Recomputed each tick, so someone arriving mid-freeze drops the requirement
+                            // straight back to the group figure.
+                            int needed = alone
+                                    ? (int) Math.ceil(channelTicksNeeded * SOLO_CHANNEL_MULTIPLIER)
+                                    : channelTicksNeeded;
+                            if (channelTicks >= needed) {
                                 resolve(true);
                                 cancel();
                                 return;

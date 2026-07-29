@@ -37,6 +37,9 @@ public final class HubListener implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         HubItem.ensure(plugin, event.getPlayer());
         resetStrandedScale(event.getPlayer());
+        // Bonus hearts are a stored tally, not a saved attribute — see HeartManager#apply, which is
+        // idempotent precisely so this can run on every join without stacking up.
+        plugin.heartManager().apply(event.getPlayer());
     }
 
     /**
@@ -56,7 +59,12 @@ public final class HubListener implements Listener {
     @EventHandler
     public void onRespawn(PlayerRespawnEvent event) {
         Player player = event.getPlayer();
-        plugin.getServer().getScheduler().runTask(plugin, () -> HubItem.ensure(plugin, player));
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            HubItem.ensure(plugin, player);
+            // Deferred by a tick like the hub star: the respawn's own health reset lands first, so applying the
+            // modifier here is what makes a player with bonus hearts respawn on the bar they actually have.
+            plugin.heartManager().apply(player);
+        });
     }
 
     @EventHandler
@@ -64,6 +72,7 @@ public final class HubListener implements Listener {
         plugin.accessoryManager().unload(event.getPlayer().getUniqueId());
         plugin.stoneManager().unload(event.getPlayer().getUniqueId());
         plugin.ridableManager().unload(event.getPlayer().getUniqueId());
+        plugin.heartManager().unload(event.getPlayer().getUniqueId());
     }
 
     @EventHandler

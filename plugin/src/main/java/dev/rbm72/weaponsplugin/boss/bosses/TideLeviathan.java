@@ -7,24 +7,18 @@ import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossPhase;
 import dev.rbm72.weaponsplugin.boss.LootTable;
-import dev.rbm72.weaponsplugin.boss.PhaseMechanic;
 import dev.rbm72.weaponsplugin.boss.events.ConvergenceNukeEvent;
 import dev.rbm72.weaponsplugin.boss.events.HitCountShieldEvent;
-import dev.rbm72.weaponsplugin.boss.mechanics.DriftingDiscField;
-import dev.rbm72.weaponsplugin.boss.mechanics.FloodingFloorMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.ForceFieldMechanic;
-import dev.rbm72.weaponsplugin.boss.mechanics.MechanicField;
-import dev.rbm72.weaponsplugin.boss.mechanics.TrappedAlliesMechanic;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.BubbleTrapAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.HealingAddsAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.IceShardAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.MaelstromAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.UndertowAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.TidalSurgeAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.TridentThrowAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.TsunamiAttack;
 import dev.rbm72.weaponsplugin.boss.bosses.attacks.WaterJetAttack;
-import dev.rbm72.weaponsplugin.boss.bosses.attacks.WhirlpoolAttack;
+import dev.rbm72.weaponsplugin.boss.bosses.leviathan.MaelstromPhase;
+import dev.rbm72.weaponsplugin.boss.bosses.leviathan.LowTidePhase;
+import dev.rbm72.weaponsplugin.boss.bosses.leviathan.RisingTidePhase;
+import dev.rbm72.weaponsplugin.boss.bosses.leviathan.TheDeepPhase;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.weapons.MaelstromTrident;
 import net.kyori.adventure.text.Component;
@@ -46,16 +40,40 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * The Tide Leviathan — a drowned sovereign of the deep. Four phases
- * (100-75 / 75-40 / 40-15 / enrage &lt;15) built on a shared water kit, with
- * Tidal Surge flooding the arena floor as the signature terrain-wrecking move
- * and an arena-wide drowning Maelstrom in enrage.
+ * The Tide Leviathan — an arena that becomes an ocean, then drains.
+ * <p>
+ * The roster's breath-and-3D-space boss: the only fight where the arena becomes fully volumetric. Water
+ * rises in stages ({@code leviathan.WaterLevel}) until the whole arena is submerged, and from that point
+ * the master resource is air — real vanilla drowning, held off only by real conduits ({@code
+ * leviathan.Conduits}) the group must place, defend, and replace whenever the Leviathan smashes one. Real
+ * soul-sand and magma-block bubble columns ({@code leviathan.BubbleColumns}) turn the vertical axis into
+ * both a hazard and a highway, real guardians patrol with their own unmistakable beam telegraph, and a
+ * directional pull field ({@code leviathan.Whirlpool}) drags the fight toward the centre once in P2 and
+ * permanently in P3. Then P4 drains the arena in one dramatic event and inverts the whole skillset: he is
+ * beached, slower, heavier, and finally reachable by the melee he could always outswim.
+ * <p>
+ * <b>Four phases, three of which end on something other than health</b> (batch-2 §3.3):
+ * <ol>
+ *   <li><b>Rising Tide</b> (100-75%) — exits on one conduit placed and currently held.</li>
+ *   <li><b>The Deep</b> (75-48%) — exits on the P2 one-shot Whirlpool having run its course.</li>
+ *   <li><b>Maelstrom</b> (48-20%) — exits on three Whirlpool "breaks" (soul-sand-column groundings).</li>
+ *   <li><b>Low Tide</b> (&lt;20%) — the roster's mandatory ungated phase (design rule #2): no mechanic,
+ *       just a straight, dangerous DPS race against a beached, slowed, wounded animal.</li>
+ * </ol>
+ * <b>What gates him is water, never a shield.</b> No phase here ever sets a damage multiplier or forces
+ * invulnerability — he is hittable every second of the fight. What the group has to manage is air,
+ * position against the pull, and a conduit network under active attack.
  */
 public final class TideLeviathan extends Boss {
 
     private static final Color TEAL = Color.fromRGB(40, 200, 200);
-    private static final Color PALE = Color.fromRGB(160, 240, 250);
+    private static final Color PALE = Color.fromRGB(160, 240, 255);
     private static final Color DEEP_TEAL = Color.fromRGB(10, 90, 130);
+
+    /** Health-fraction seams, shared between the phase list and the milestones the events land between. */
+    private static final double THE_DEEP_ENTRY = 0.75;
+    private static final double MAELSTROM_ENTRY = 0.48;
+    private static final double LOW_TIDE_ENTRY = 0.20;
 
     private final List<BossPhase> phases;
     private final LootTable lootTable;
@@ -64,40 +82,37 @@ public final class TideLeviathan extends Boss {
         super(plugin);
 
         WaterJetAttack waterJet = new WaterJetAttack(plugin);
-        WhirlpoolAttack whirlpool = new WhirlpoolAttack(plugin);
-        TidalSurgeAttack tidalSurge = new TidalSurgeAttack(plugin);
         TridentThrowAttack tridentThrow = new TridentThrowAttack(plugin);
         BubbleTrapAttack bubbleTrap = new BubbleTrapAttack(plugin);
         TsunamiAttack tsunami = new TsunamiAttack(plugin);
-        IceShardAttack iceShard = new IceShardAttack(plugin);
         MaelstromAttack maelstrom = new MaelstromAttack(plugin);
-        UndertowAttack undertowAttack = new UndertowAttack(plugin);
         HealingAddsAttack abyssalPriests = new HealingAddsAttack(plugin, "tide_leviathan", "Abyssal Priest",
                 EntityType.DROWNED, TEAL);
 
         this.phases = List.of(
-                // Undertow: a permanent riptide toward the middle, broken only by the air pockets that
-                // drift across the arena. You are never blocked, only ever losing ground.
-                new BossPhase("Undertow", 1.0,
-                        List.of(waterJet, whirlpool, tidalSurge, tridentThrow),
-                        false, TideLeviathan::onEnterPhase1,
-                        this::undertow),
-                // The water comes up and keeps coming up. The terrain finally matters: the one ridge
-                // nobody looked at is now the most valuable ground in the fight.
-                new BossPhase("The Depths Rise", 0.75,
-                        List.of(bubbleTrap, tsunami, waterJet, whirlpool, abyssalPriests),
-                        false, TideLeviathan::onEnterPhase2,
-                        this::risingTide),
-                // Ungated: the abyss stops being clever and simply tries to kill you. Pure race.
-                new BossPhase("Abyssal Wrath", 0.40,
-                        List.of(iceShard, tidalSurge, tsunami, bubbleTrap, undertowAttack),
-                        false, TideLeviathan::onEnterPhase3),
-                // Bubble Prison: it drowns your people one at a time while it keeps fighting, so every
-                // second spent cutting someone out is damage the group is choosing not to deal.
-                new BossPhase("Maelstrom", 0.15,
-                        List.of(waterJet, whirlpool, tidalSurge, tsunami, iceShard, maelstrom, undertowAttack),
-                        true, TideLeviathan::onEnterEnrage,
-                        this::bubblePrison));
+                // Rising Tide: still partly a ground fight, with the shoreline moving under everyone's
+                // feet. Learn where the air is and get the first conduit down.
+                new BossPhase("Rising Tide", 1.0,
+                        List.of(waterJet, tridentThrow, bubbleTrap),
+                        false, TideLeviathan::onEnterRisingTide,
+                        instance -> new RisingTidePhase(instance, THE_DEEP_ENTRY)),
+                // The Deep: full submersion, guardians, bubble columns, and a boss who actively hunts the
+                // conduit network instead of just the nearest player.
+                new BossPhase("The Deep", THE_DEEP_ENTRY,
+                        List.of(waterJet, tridentThrow, bubbleTrap, tsunami, abyssalPriests),
+                        false, TideLeviathan::onEnterTheDeep,
+                        instance -> new TheDeepPhase(instance, MAELSTROM_ENTRY)),
+                // Maelstrom: the pull never turns off again. Position is something you maintain, not
+                // choose — drift and the current chews you up.
+                new BossPhase("Maelstrom", MAELSTROM_ENTRY,
+                        List.of(waterJet, tridentThrow, bubbleTrap, tsunami, abyssalPriests, maelstrom),
+                        false, TideLeviathan::onEnterMaelstrom,
+                        instance -> new MaelstromPhase(instance, LOW_TIDE_ENTRY)),
+                // Low Tide: ungated on purpose (design rule #2) — the arena drains in one dramatic event
+                // and it becomes a straight, grounded brawl with a wounded animal.
+                new BossPhase("Low Tide", LOW_TIDE_ENTRY,
+                        List.of(tridentThrow, waterJet),
+                        true, TideLeviathan::onEnterLowTide));
 
         this.lootTable = new LootTable()
                 .guaranteed(() -> new MaelstromTrident(plugin).createItem())
@@ -135,63 +150,18 @@ public final class TideLeviathan extends Boss {
     }
 
     /**
-     * Undertow: a standing inward current for the whole band, with a drowning core at the middle and
-     * drifting air pockets as the only places the pull does not reach. Being anchored is always
-     * available and always costs the ground you would rather be fighting from.
+     * §3.6 anti-cheese, expressed as events at milestones offset from the phase boundaries (0.75/0.48/
+     * 0.20) so none of them land on a transition that already has its own cinematic (Pitfall 9).
+     * <p>
+     * {@code HitCountShieldEvent} rewards attack speed over raw damage per swing at two points in the
+     * fight; {@code ConvergenceNukeEvent} is the mid-fight "everyone out, now" punctuation beat, themed
+     * here as a riptide slam through the flooded arena.
      */
-    private PhaseMechanic undertow(BossInstance instance) {
-        MechanicField airPockets = new DriftingDiscField(
-                configInt("undertow-pockets", 2),
-                configDouble("undertow-pocket-radius", 4.0),
-                configDouble("undertow-pocket-drift", 2.4),
-                PALE,
-                configDouble("undertow-pocket-spread", 0.55));
-        return new ForceFieldMechanic(instance, "Undertow", DEEP_TEAL,
-                ForceFieldMechanic.Direction.INWARD, ForceFieldMechanic.Focus.ARENA_CENTRE,
-                configDouble("undertow-pull-per-tick", 0.05),
-                configDouble("undertow-core-radius", 5.5),
-                configDouble("undertow-core-damage-per-second", 7.0),
-                airPockets);
-    }
-
-    /**
-     * Rising Tide: the waterline climbs, drowns everything under it, peaks and drains. It costs the
-     * group the floor rather than their health, which is what makes the arena's terrain suddenly the
-     * most important thing in the fight.
-     */
-    private PhaseMechanic risingTide(BossInstance instance) {
-        return new FloodingFloorMechanic(instance, "Rising Tide", TEAL,
-                configDouble("tide-rise-per-second", 0.28),
-                configDouble("tide-max-rise", 5.0),
-                configInt("tide-peak-hold-ticks", 90),
-                configInt("tide-drained-pause-ticks", 80),
-                configDouble("tide-drown-damage-per-second", 5.0),
-                true);
-    }
-
-    /**
-     * Bubble Prison: it drowns one of you at a time on a visible clock while it keeps fighting, so
-     * the rescue is always a trade against damage rather than a pause in the encounter.
-     */
-    private PhaseMechanic bubblePrison(BossInstance instance) {
-        return new TrappedAlliesMechanic(instance, "BUBBLE PRISON", PALE, Material.PRISMARINE,
-                Sound.ENTITY_FISHING_BOBBER_SPLASH,
-                configInt("bubble-prison-captives", 1),
-                configInt("bubble-prison-first-delay-ticks", 80),
-                configInt("bubble-prison-recapture-delay-ticks", 120),
-                configInt("bubble-prison-drown-ticks", 150),
-                configInt("bubble-prison-rescue-ticks", 60),
-                configDouble("bubble-prison-drain-per-second", 2.2),
-                configDouble("bubble-prison-fail-damage", 24.0),
-                configDouble("bubble-prison-fail-heal", 25.0));
-    }
-
-    /** Offset from its phase boundaries (0.75 / 0.40 / 0.15) so they land mid-phase, not on transitions. */
     @Override
     public List<BossEvent> events() {
         return List.of(
-                new HitCountShieldEvent(plugin, id(), new double[] {0.86, 0.34}),
-                new ConvergenceNukeEvent(plugin, id(), new double[] {0.62, 0.28},
+                new HitCountShieldEvent(plugin, id(), new double[] {0.86, 0.30}),
+                new ConvergenceNukeEvent(plugin, id(), new double[] {0.60},
                         "RIPTIDE SLAM", "Get to the edge — the whole basin is about to move"));
     }
 
@@ -208,7 +178,7 @@ public final class TideLeviathan extends Boss {
 
     @Override
     public Component entranceSubtitle() {
-        return Component.text("A drowned sovereign surges from the deep", NamedTextColor.GRAY);
+        return Component.text("A drowned sovereign surges from the deep — the ocean rises with it", NamedTextColor.GRAY);
     }
 
     @Override
@@ -221,13 +191,14 @@ public final class TideLeviathan extends Boss {
         return Component.text("The waters fall still once more", NamedTextColor.GRAY);
     }
 
-    private static void onEnterPhase1(BossInstance instance) {
+    private static void onEnterRisingTide(BossInstance instance) {
         Location loc = instance.entity().getLocation();
         EntityEquipment equipment = instance.entity().getEquipment();
         if (equipment != null) {
             equipment.setItemInMainHand(new ItemStack(Material.TRIDENT));
         }
-        // A geyser of water erupts as the leviathan rises to claim the arena.
+        // A geyser of water erupts as the leviathan rises to claim the arena — the first hint the floor
+        // is about to become the sea.
         Fx.expandingRings(instance.plugin(), loc, Particle.SPLASH, 5.0, 4, 3L);
         Fx.coloredBurst(loc.clone().add(0, 1.5, 0), TEAL, 1.8f, 40, 0.7);
         Fx.burst(loc.clone().add(0, 1, 0), Particle.BUBBLE_COLUMN_UP, 30, 0.6);
@@ -235,22 +206,20 @@ public final class TideLeviathan extends Boss {
         Fx.sound(loc, Sound.ITEM_TRIDENT_RIPTIDE_2, 0.8f, 0.5f);
     }
 
-    private static void onEnterPhase2(BossInstance instance) {
+    private static void onEnterTheDeep(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // The depths rise: a swelling surge of water engulfs the arena.
         Fx.burst(loc.clone().add(0, 1.2, 0), Particle.SPLASH, 45, 0.9);
         Fx.coloredBurst(loc.clone().add(0, 1.2, 0), PALE, 1.6f, 40, 0.8);
         Fx.expandingRings(instance.plugin(), loc, Particle.BUBBLE, 7.0, 3, 2L);
         Fx.sound(loc, Sound.ITEM_TRIDENT_RIPTIDE_3, 1.0f, 0.6f);
         Fx.sound(loc, Sound.ENTITY_PLAYER_SPLASH_HIGH_SPEED, 0.8f, 0.8f);
         instance.showTitle(
-                Component.text("The Depths Rise", NamedTextColor.DARK_AQUA).decoration(TextDecoration.BOLD, true),
-                Component.text("The leviathan calls the ocean to its side", NamedTextColor.GRAY));
+                Component.text("The Deep", NamedTextColor.DARK_AQUA).decoration(TextDecoration.BOLD, true),
+                Component.text("The last air is gone — hold the conduits", NamedTextColor.GRAY));
     }
 
-    private static void onEnterPhase3(BossInstance instance) {
+    private static void onEnterMaelstrom(BossInstance instance) {
         Location loc = instance.entity().getLocation();
-        // Abyssal wrath: an inward-collapsing ring of frigid deep water.
         Fx.burst(loc.clone().add(0, 1.2, 0), Particle.BUBBLE, 40, 0.7);
         Fx.coloredBurst(loc.clone().add(0, 1.2, 0), DEEP_TEAL, 2.0f, 34, 0.8);
         for (int ring = 0; ring < 3; ring++) {
@@ -259,21 +228,12 @@ public final class TideLeviathan extends Boss {
         Fx.sound(loc, Sound.ENTITY_ELDER_GUARDIAN_CURSE, 1.0f, 0.5f);
         Fx.sound(loc, Sound.BLOCK_CONDUIT_ACTIVATE, 0.7f, 0.6f);
         instance.showTitle(
-                Component.text("Abyssal Wrath", NamedTextColor.BLUE).decoration(TextDecoration.BOLD, true),
-                Component.text("The cold of the deep answers its rage", NamedTextColor.GRAY));
+                Component.text("Maelstrom", NamedTextColor.BLUE).decoration(TextDecoration.BOLD, true),
+                Component.text("The pull never stops now — ride the current or fight it", NamedTextColor.GRAY));
     }
 
-    private static void onEnterEnrage(BossInstance instance) {
-        Location loc = instance.entity().getLocation();
-        // Maelstrom: a towering water vortex and a spinning trophy of the sea overhead.
-        Fx.burst(loc.clone().add(0, 1, 0), Particle.SPLASH, 55, 0.8);
-        Fx.coloredRing(loc, TEAL, 1.6f, 4.5, 24, 0);
-        Fx.spinningIcon(instance.plugin(), loc.clone().add(0, 2.6, 0), Material.HEART_OF_THE_SEA, 1.4f, 100, 12.0);
-        Fx.sound(loc, Sound.ITEM_TRIDENT_RIPTIDE_3, 1.2f, 0.4f);
-        Fx.sound(loc, Sound.ENTITY_ELDER_GUARDIAN_CURSE, 1.0f, 0.5f);
-        instance.showTitle(
-                Component.text("🌊 MAELSTROM 🌊", NamedTextColor.AQUA).decoration(TextDecoration.BOLD, true),
-                Component.text("It will drag this world beneath the waves", NamedTextColor.GRAY));
+    private static void onEnterLowTide(BossInstance instance) {
+        LowTidePhase.beach(instance);
     }
 
     private static ItemStack tideplate(Material material) {

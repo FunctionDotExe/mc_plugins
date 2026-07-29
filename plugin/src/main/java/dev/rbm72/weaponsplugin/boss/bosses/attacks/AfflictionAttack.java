@@ -107,7 +107,7 @@ public final class AfflictionAttack extends BossAttack {
                                     stacks.remove(player.getUniqueId());
                                     continue;
                                 }
-                                player.damage(tickDamage * s, ctx.boss());
+                                tickHurt(ctx, player, tickDamage * s);
                                 Fx.coloredBurst(player.getLocation().add(0, 1, 0), color, 1.0f, 6, 0.2);
                             }
                             elapsed += tickIntervalTicks;

@@ -3,6 +3,8 @@ package dev.rbm72.weaponsplugin.boss.bosses.king;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Player;
 
 import java.util.List;
@@ -27,6 +29,11 @@ final class RegicidePhase extends KingPhaseMechanic {
         super(instance, "Regicide", exitFraction);
     }
 
+    /** How much a solo King's pursuit speed is cut — §1.5: "a solo relay is possible with good kiting". */
+    private static final double SOLO_PURSUIT_SPEED_MULTIPLIER = 0.75;
+
+    private boolean speedReduced;
+
     @Override
     protected void onArm() {
         fight.judgment().setRunning(false);
@@ -35,6 +42,25 @@ final class RegicidePhase extends KingPhaseMechanic {
         // player because the shard changes hands constantly — that is what the hand-offs are for, and a
         // pursuit that kept chasing whoever picked it up first would make throwing it pointless.
         instance.setTargetOverride(this::hunted);
+        if (solo()) {
+            AttributeInstance speed = instance.entity().getAttribute(Attribute.MOVEMENT_SPEED);
+            if (speed != null) {
+                speed.setBaseValue(speed.getBaseValue() * SOLO_PURSUIT_SPEED_MULTIPLIER);
+                speedReduced = true;
+            }
+        }
+    }
+
+    @Override
+    protected void onDisarm() {
+        if (!speedReduced) {
+            return;
+        }
+        AttributeInstance speed = instance.entity().getAttribute(Attribute.MOVEMENT_SPEED);
+        if (speed != null) {
+            speed.setBaseValue(speed.getBaseValue() / SOLO_PURSUIT_SPEED_MULTIPLIER);
+        }
+        speedReduced = false;
     }
 
     /**
