@@ -5,7 +5,6 @@ import dev.rbm72.weaponsplugin.boss.grief.Grief;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;

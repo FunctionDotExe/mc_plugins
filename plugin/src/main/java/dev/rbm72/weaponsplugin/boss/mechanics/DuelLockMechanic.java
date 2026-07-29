@@ -14,6 +14,8 @@ import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Sound;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -122,7 +124,7 @@ public final class DuelLockMechanic implements PhaseMechanic {
         boolean duellistGone = duellist == null || !duellist.isOnline() || duellist.isDead()
                 || !Arena.combatants(instance.entity().getLocation(), instance.arena().radius()).contains(duellist);
         boolean duellistSpent = duellist != null && duellist.isOnline()
-                && duellist.getHealth() / duellist.getMaxHealth() <= rotateBelowHealthFraction;
+                && duellist.getHealth() / maxHealthOf(duellist) <= rotateBelowHealthFraction;
         if (duellistGone || duellistSpent || duelTicks >= maxDuelTicks) {
             chooseDuellist();
             return;
@@ -132,6 +134,12 @@ public final class DuelLockMechanic implements PhaseMechanic {
         Location bossLoc = instance.entity().getLocation().add(0, 1.2, 0);
         Fx.line(bossLoc, duellist.getLocation().add(0, 1, 0), org.bukkit.Particle.CRIT, 14);
         updateBar();
+    }
+
+    /** MAX_HEALTH read through the attribute; the 20.0 fallback is the vanilla default. */
+    private static double maxHealthOf(Player player) {
+        AttributeInstance maxHealth = player.getAttribute(Attribute.MAX_HEALTH);
+        return maxHealth != null ? maxHealth.getValue() : 20.0;
     }
 
     /**

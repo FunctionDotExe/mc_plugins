@@ -106,7 +106,8 @@ public final class EarthbreakerAxe extends Weapon {
         BlockData data = ground.getBlockData();
         ground.setType(Material.AIR, false);
 
-        FallingBlock debris = world.spawnFallingBlock(ground.getLocation().add(0.5, 0.2, 0.5), data);
+        FallingBlock debris = world.spawn(ground.getLocation().add(0.5, 0.2, 0.5), FallingBlock.class,
+                fb -> fb.setBlockData(data));
         debris.setDropItem(false);
         debris.setCancelDrop(true);
         debris.setHurtEntities(false);

@@ -6,7 +6,6 @@ import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.MechanicBar;
 import dev.rbm72.weaponsplugin.fx.Fx;
-import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -36,7 +35,6 @@ public final class HitCountShieldEvent extends BossEvent {
 
     /** Minimum gap between two counted hits from the same player — stops one AoE proc clearing the bar. */
     private static final long HIT_COOLDOWN_MS = 150;
-    private static final long NOTICE_MS = 1200;
 
     private static final Color SHIELD_BLUE = Color.fromRGB(120, 200, 255);
 

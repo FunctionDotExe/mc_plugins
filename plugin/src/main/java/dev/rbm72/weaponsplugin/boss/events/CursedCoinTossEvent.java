@@ -41,7 +41,6 @@ public final class CursedCoinTossEvent extends BossEvent {
 
     private static final Color BLESSED = Color.fromRGB(255, 240, 160);
     private static final Color CURSED = Color.fromRGB(120, 40, 160);
-    private static final long NOTICE_MS = 1000;
     private static final long TICK_INTERVAL = 4L;
 
     private final double[] triggers;

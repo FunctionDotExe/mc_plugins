@@ -1,7 +1,6 @@
 package dev.rbm72.weaponsplugin.boss.mechanics;
 
 import dev.rbm72.weaponsplugin.boss.BossInstance;
-import dev.rbm72.weaponsplugin.boss.MechanicBar;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;

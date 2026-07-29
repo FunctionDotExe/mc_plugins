@@ -233,8 +233,11 @@ public final class Mournsong extends Weapon {
         Location origin = player.getLocation();
         Vector direction = origin.getDirection().normalize();
         Fx.sound(player, Sound.ENTITY_EVOKER_CAST_SPELL, 1.0f, 0.9f);
+        // Spacing is derived so the last fang lands at fang-range: the reach is the tunable, the count
+        // just decides how finely that reach is subdivided.
+        double fangSpacing = fangRange / fangCount;
         for (int i = 1; i <= fangCount; i++) {
-            Location spot = origin.clone().add(direction.clone().multiply(i * 1.6));
+            Location spot = origin.clone().add(direction.clone().multiply(i * fangSpacing));
             new BukkitRunnable() {
                 @Override
                 public void run() {

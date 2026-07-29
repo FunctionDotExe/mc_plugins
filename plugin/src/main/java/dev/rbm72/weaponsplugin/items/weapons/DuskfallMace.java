@@ -5,6 +5,7 @@ import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.util.Grounded;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Color;
@@ -153,7 +154,7 @@ public final class DuskfallMace extends Weapon {
                     return;
                 }
                 Fx.point(player.getLocation(), Particle.SMOKE, 3);
-                if ((ticks > 3 && player.isOnGround()) || ticks >= 30) {
+                if ((ticks > 3 && Grounded.onGround(player)) || ticks >= 30) {
                     cancel();
                     slam(player);
                     return;

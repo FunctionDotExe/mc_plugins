@@ -4,6 +4,7 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.stone.Stone;
+import dev.rbm72.weaponsplugin.util.Grounded;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Material;
@@ -85,7 +86,7 @@ public final class SlimeboundStone extends Stone {
     public void onFastTick(Player player) {
         UUID uuid = player.getUniqueId();
 
-        if (player.isOnGround()) {
+        if (Grounded.onGround(player)) {
             spent.remove(uuid);
             return;
         }

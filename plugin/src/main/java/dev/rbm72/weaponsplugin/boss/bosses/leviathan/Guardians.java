@@ -62,7 +62,6 @@ final class Guardians {
         double fraction = fight.config().dbl("guardian-spawn-fraction", 0.5);
         double dist = fight.instance().arena().radius() * fraction;
         double angle = ThreadLocalRandom.current().nextDouble(0, Math.PI * 2);
-        int floorY = fight.water().floorY();
         int height = Math.max(1, fight.config().num("water-full-submerge-height", 9)) - 1;
         Location at = centre.clone().add(Math.cos(angle) * dist,
                 ThreadLocalRandom.current().nextInt(Math.max(1, height)), Math.sin(angle) * dist);

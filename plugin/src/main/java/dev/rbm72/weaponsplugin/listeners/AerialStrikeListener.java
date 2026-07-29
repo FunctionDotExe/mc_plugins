@@ -3,6 +3,7 @@ package dev.rbm72.weaponsplugin.listeners;
 import dev.rbm72.weaponsplugin.accessory.AccessoryManager;
 import dev.rbm72.weaponsplugin.accessory.accessories.SkyreaverTalons;
 import dev.rbm72.weaponsplugin.fx.Fx;
+import dev.rbm72.weaponsplugin.util.Grounded;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.entity.LivingEntity;
@@ -39,7 +40,7 @@ public final class AerialStrikeListener implements Listener {
         if (!(event.getEntity() instanceof LivingEntity victim)) {
             return;
         }
-        if (attacker.isOnGround() || !accessories.equipped(attacker).contains(skyreaverTalons)) {
+        if (Grounded.onGround(attacker) || !accessories.equipped(attacker).contains(skyreaverTalons)) {
             return;
         }
 

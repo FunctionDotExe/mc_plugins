@@ -1,6 +1,5 @@
 package dev.rbm72.weaponsplugin.boss.bosses.worldender;
 
-import dev.rbm72.weaponsplugin.boss.Arena;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import net.kyori.adventure.text.Component;

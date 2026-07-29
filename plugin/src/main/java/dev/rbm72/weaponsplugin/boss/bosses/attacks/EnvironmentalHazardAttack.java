@@ -11,6 +11,7 @@ import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.FallingBlock;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -91,7 +92,8 @@ public final class EnvironmentalHazardAttack extends BossAttack {
         Location from = zoneCenter.clone().add(ox, dropHeight, oz);
         Material material = Grief.enabled(ctx) ? Material.MAGMA_BLOCK : Material.NETHERRACK;
 
-        FallingBlock block = world.spawnFallingBlock(from, material.createBlockData());
+        BlockData blockData = material.createBlockData();
+        FallingBlock block = world.spawn(from, FallingBlock.class, fb -> fb.setBlockData(blockData));
         block.setDropItem(false);
         block.setCancelDrop(true);
         block.setHurtEntities(false);

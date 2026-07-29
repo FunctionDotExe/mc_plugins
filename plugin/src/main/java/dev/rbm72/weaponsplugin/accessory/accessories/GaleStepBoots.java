@@ -4,6 +4,7 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.accessory.Accessory;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
+import dev.rbm72.weaponsplugin.util.Grounded;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Color;
@@ -89,7 +90,7 @@ public final class GaleStepBoots extends Accessory {
     public void personalAbility(Player player) {
         Vector direction = player.getLocation().getDirection().normalize();
         Vector velocity = direction.multiply(DASH_SPEED);
-        boolean airborne = !player.isOnGround();
+        boolean airborne = !Grounded.onGround(player);
         velocity.setY(Math.max(velocity.getY(), airborne ? AIR_LIFT : GROUND_LIFT));
         player.setVelocity(velocity);
 

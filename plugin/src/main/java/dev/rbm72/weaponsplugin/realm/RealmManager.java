@@ -4,7 +4,7 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.boss.Boss;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.bukkit.GameRule;
+import org.bukkit.GameRules;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
@@ -203,8 +203,8 @@ public final class RealmManager {
         world.getChunkAt(throneSpawn(world));
         // No constrained world border: the physical wall is the only containment a player should
         // ever see. Left at Bukkit's default (effectively unbounded), so no border shimmer renders.
-        world.setGameRule(GameRule.DO_MOB_SPAWNING, false);
-        world.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false);
+        world.setGameRule(GameRules.SPAWN_MOBS, false);
+        world.setGameRule(GameRules.ADVANCE_TIME, false);
         // Only NORMAL worlds have a day/night clock. Calling setTime on a NETHER or THE_END realm
         // throws "Cannot set time in world without world clock" — and since this runs partway through
         // world setup, that exception escaped createWorld, aborted enter() before it could teleport the
@@ -215,12 +215,12 @@ public final class RealmManager {
             world.setTime(18000L);
         }
         if (theme.forceRain()) {
-            world.setGameRule(GameRule.DO_WEATHER_CYCLE, false);
+            world.setGameRule(GameRules.ADVANCE_WEATHER, false);
             world.setStorm(true);
             world.setThundering(false);
             world.setWeatherDuration(Integer.MAX_VALUE);
         } else {
-            world.setGameRule(GameRule.DO_WEATHER_CYCLE, false);
+            world.setGameRule(GameRules.ADVANCE_WEATHER, false);
             world.setStorm(false);
         }
         startAmbience(world, radius, theme);

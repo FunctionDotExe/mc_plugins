@@ -60,6 +60,14 @@ public final class ShieldBlockListener implements Listener {
         blockStartMs.put(event.getPlayer().getUniqueId(), System.currentTimeMillis());
     }
 
+    /**
+     * {@code DamageModifier} is deprecated with no replacement — the new damage API exposes only the
+     * final number, and this handler needs to remove vanilla's own shield reduction specifically so a
+     * custom shield's numbers are the only ones that apply. Recomputing that term by hand would mean
+     * re-deriving vanilla's blocking formula and drifting from it on every version bump, so the call
+     * stays and the deprecation is acknowledged here.
+     */
+    @SuppressWarnings("deprecation")
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onDamage(EntityDamageByEntityEvent event) {
         if (!(event.getEntity() instanceof Player victim) || !victim.isBlocking()) {

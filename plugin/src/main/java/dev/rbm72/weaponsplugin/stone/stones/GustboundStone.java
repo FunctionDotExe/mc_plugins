@@ -5,6 +5,7 @@ import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.kit.Props;
 import dev.rbm72.weaponsplugin.stone.Stone;
+import dev.rbm72.weaponsplugin.util.Grounded;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Color;
@@ -101,7 +102,7 @@ public final class GustboundStone extends Stone {
 
     @Override
     public void personalAbility(Player player) {
-        boolean grounded = player.isOnGround();
+        boolean grounded = Grounded.onGround(player);
         Vector look = player.getLocation().getDirection().normalize();
 
         // Grounded: fire it down between the feet, so the burst reflects off the floor and lifts. Airborne:

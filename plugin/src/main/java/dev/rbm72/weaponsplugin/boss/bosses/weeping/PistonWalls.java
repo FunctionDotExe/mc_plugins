@@ -55,7 +55,6 @@ final class PistonWalls {
         int jammedTicks;
         int cycleTicks;
         int jams;
-        boolean feedBroken;
     }
 
     private final WeepingFight fight;
@@ -172,7 +171,6 @@ final class PistonWalls {
                 section.feed.add(block);
             }
         }
-        section.feedBroken = false;
     }
 
     // ---------------------------------------------------------------- ticking
@@ -376,7 +374,6 @@ final class PistonWalls {
         public void onBreak(BlockBreakEvent event) {
             for (Section section : sections) {
                 if (section.feed.contains(event.getBlock())) {
-                    section.feedBroken = true;
                     jam(section, event.getPlayer());
                     return;
                 }

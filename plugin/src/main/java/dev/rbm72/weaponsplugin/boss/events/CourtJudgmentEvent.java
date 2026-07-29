@@ -6,7 +6,6 @@ import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.MechanicBar;
 import dev.rbm72.weaponsplugin.fx.Fx;
-import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -45,7 +44,6 @@ import java.util.List;
 public final class CourtJudgmentEvent extends BossEvent {
 
     private static final Color JUDGMENT_GOLD = Color.fromRGB(255, 215, 90);
-    private static final long NOTICE_MS = 1000;
 
     private final double[] triggers;
     private final int guardCount;

@@ -34,7 +34,7 @@ public enum MobAbility {
             var world = mob.getWorld();
             Location from = mob.getEyeLocation();
             Vector direction = target.getEyeLocation().toVector().subtract(from.toVector()).normalize();
-            Arrow arrow = world.spawn(from, Arrow.class, a -> {
+            world.spawn(from, Arrow.class, a -> {
                 a.setVelocity(direction.multiply(1.6));
                 a.setShooter(mob);
                 a.setDamage(3.0);
@@ -56,7 +56,7 @@ public enum MobAbility {
             PotionMeta meta = (PotionMeta) potionItem.getItemMeta();
             meta.addCustomEffect(new PotionEffect(PotionEffectType.POISON, 100, 0), true);
             potionItem.setItemMeta(meta);
-            ThrownPotion potion = world.spawn(from, ThrownPotion.class, p -> {
+            world.spawn(from, ThrownPotion.class, p -> {
                 p.setItem(potionItem);
                 p.setVelocity(direction);
                 p.setShooter(mob);

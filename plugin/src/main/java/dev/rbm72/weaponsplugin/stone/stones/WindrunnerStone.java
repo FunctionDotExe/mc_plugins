@@ -4,6 +4,7 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.stone.Stone;
+import dev.rbm72.weaponsplugin.util.Grounded;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Color;
@@ -164,7 +165,7 @@ public final class WindrunnerStone extends Stone {
 
         Vector direction = player.getLocation().getDirection().normalize();
         Vector velocity = direction.multiply(dashSpeed());
-        boolean airborne = !player.isOnGround();
+        boolean airborne = !Grounded.onGround(player);
         velocity.setY(Math.max(velocity.getY(), airborne ? airLift() : groundLift()));
         player.setVelocity(velocity);
 

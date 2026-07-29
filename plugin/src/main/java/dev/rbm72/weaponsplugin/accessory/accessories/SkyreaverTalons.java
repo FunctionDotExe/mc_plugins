@@ -4,6 +4,7 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.accessory.Accessory;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
+import dev.rbm72.weaponsplugin.util.Grounded;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Color;
@@ -105,7 +106,7 @@ public final class SkyreaverTalons extends Accessory {
         if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) {
             return;
         }
-        if (player.isOnGround()) {
+        if (Grounded.onGround(player)) {
             launchIntoAerialStance(player);
         } else {
             diveSlam(player);
@@ -138,7 +139,7 @@ public final class SkyreaverTalons extends Accessory {
                     cancel();
                     return;
                 }
-                if (player.isOnGround() || ticks >= DIVE_TIMEOUT_TICKS) {
+                if (Grounded.onGround(player) || ticks >= DIVE_TIMEOUT_TICKS) {
                     cancel();
                     if (player.isOnline()) {
                         slamImpact(player);

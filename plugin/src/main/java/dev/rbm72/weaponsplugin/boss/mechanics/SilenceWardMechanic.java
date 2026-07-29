@@ -54,7 +54,6 @@ public final class SilenceWardMechanic extends TickingMechanic {
     private Location wardCentre;
     private Display marker;
     private int respawnCountdown;
-    private int collapses;
 
     public SilenceWardMechanic(BossInstance instance, String label, Color color, Material markerMaterial,
                                 String cantorName, EntityType cantorType, double cantorHealth,
@@ -204,7 +203,6 @@ public final class SilenceWardMechanic extends TickingMechanic {
     }
 
     private void collapse() {
-        collapses++;
         Location at = wardCentre != null ? wardCentre.clone() : instance.entity().getLocation();
         clearWard();
         instance.recordExposure();

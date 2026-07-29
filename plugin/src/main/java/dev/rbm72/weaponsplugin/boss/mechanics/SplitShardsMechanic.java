@@ -1,7 +1,6 @@
 package dev.rbm72.weaponsplugin.boss.mechanics;
 
 import dev.rbm72.weaponsplugin.boss.BossInstance;
-import dev.rbm72.weaponsplugin.boss.MechanicBar;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.bossbar.BossBar;
@@ -58,7 +57,6 @@ public final class SplitShardsMechanic extends TickingMechanic {
     private int windowLeft;
     private int regroupCountdown;
     private int exposedLeft;
-    private int killedThisCycle;
 
     public SplitShardsMechanic(BossInstance instance, String label, String shardName, Color color,
                                 EntityType shardType, int shardCount, double shardHealth, int windowTicks,
@@ -131,9 +129,7 @@ public final class SplitShardsMechanic extends TickingMechanic {
         }
 
         // Retire the dead so the count on screen is always the count in the room.
-        int before = shards.size();
         shards.removeIf(shard -> !shard.isValid() || shard.isDead());
-        killedThisCycle += before - shards.size();
 
         if (shards.isEmpty()) {
             fullySevered();
@@ -226,7 +222,6 @@ public final class SplitShardsMechanic extends TickingMechanic {
 
     private void split() {
         clearShards();
-        killedThisCycle = 0;
         windowLeft = windowTicks;
         Location centre = instance.entity().getLocation();
         for (int i = 0; i < shardCount; i++) {

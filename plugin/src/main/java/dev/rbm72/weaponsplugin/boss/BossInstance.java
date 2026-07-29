@@ -909,7 +909,9 @@ public final class BossInstance {
             // death message read as a fall, and would stack another tick of pit checks on the way up.
             player.teleport(safe);
             player.setFallDistance(0f);
-            player.damage(Math.max(1.0, player.getMaxHealth() * boss.pitDamageFraction()), entity);
+            AttributeInstance maxHealth = player.getAttribute(Attribute.MAX_HEALTH);
+            double healthCap = maxHealth != null ? maxHealth.getValue() : 20.0;
+            player.damage(Math.max(1.0, healthCap * boss.pitDamageFraction()), entity);
             Fx.burst(safe, Particle.SMOKE, 30, 0.6);
             Fx.sound(safe, Sound.ENTITY_GENERIC_BIG_FALL, 1.0f, 0.7f);
         }

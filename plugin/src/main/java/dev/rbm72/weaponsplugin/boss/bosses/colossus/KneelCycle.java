@@ -10,6 +10,8 @@ import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 
@@ -199,7 +201,9 @@ final class KneelCycle {
         safe.setY(world.getHighestBlockYAt(safe.getBlockX(), safe.getBlockZ()) + 1.0);
         player.teleport(safe);
         player.setFallDistance(0f);
-        player.damage(Math.max(1.0, player.getMaxHealth() * damageFraction), fight.instance().entity());
+        AttributeInstance maxHealth = player.getAttribute(Attribute.MAX_HEALTH);
+        double healthCap = maxHealth != null ? maxHealth.getValue() : 20.0;
+        player.damage(Math.max(1.0, healthCap * damageFraction), fight.instance().entity());
         Fx.burst(safe, Particle.CLOUD, 30, 0.6);
         Fx.sound(safe, Sound.ENTITY_GENERIC_BIG_FALL, 1.2f, 0.7f);
     }

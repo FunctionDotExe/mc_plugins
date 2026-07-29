@@ -11,6 +11,7 @@ import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
+import org.bukkit.block.data.FaceAttachable;
 import org.bukkit.block.data.type.Observer;
 import org.bukkit.block.data.type.Piston;
 import org.bukkit.block.data.type.Repeater;
@@ -235,7 +236,7 @@ final class Grafts {
             Block leverBlock = pistonBlock.getRelative(BlockFace.DOWN);
             if (Grief.setMechanicBlock(fight.griefContext(), leverBlock, Material.LEVER)
                     && leverBlock.getBlockData() instanceof Switch lever) {
-                lever.setFace(Switch.Face.CEILING);
+                lever.setAttachedFace(FaceAttachable.AttachedFace.CEILING);
                 lever.setFacing(outward);
                 leverBlock.setBlockData(lever, false);
                 graft.levers.add(leverBlock);

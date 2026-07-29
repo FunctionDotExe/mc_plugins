@@ -1,6 +1,7 @@
 package dev.rbm72.weaponsplugin.boss;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
+import dev.rbm72.weaponsplugin.util.Grounded;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
@@ -199,7 +200,7 @@ public final class DamageTrace implements Listener {
                     .append('(').append(effect.getDuration()).append("t)");
         }
         line.append("  feet=").append(player.getLocation().getBlock().getType());
-        line.append("  ground=").append(player.isOnGround());
+        line.append("  ground=").append(Grounded.onGround(player));
         String text = line.toString();
         player.sendMessage(Component.text(text, NamedTextColor.AQUA));
         plugin.getLogger().info("[damage-trace] " + player.getName() + "  " + text);

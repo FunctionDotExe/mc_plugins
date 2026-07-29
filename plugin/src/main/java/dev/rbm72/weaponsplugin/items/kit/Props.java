@@ -8,6 +8,7 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.World;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.AreaEffectCloud;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EnderCrystal;
@@ -101,7 +102,8 @@ public final class Props {
      */
     public static FallingBlock fallingBlock(WeaponsPlugin plugin, Weapon weapon, Location at, Material material) {
         World world = Objects.requireNonNull(at.getWorld(), "falling block needs a world");
-        FallingBlock block = world.spawnFallingBlock(at, material.createBlockData());
+        BlockData data = material.createBlockData();
+        FallingBlock block = world.spawn(at, FallingBlock.class, fb -> fb.setBlockData(data));
         block.setDropItem(false);
         block.setCancelDrop(true);
         block.setHurtEntities(false);

@@ -309,10 +309,8 @@ public final class RealmChunkGenerator extends ChunkGenerator {
         return true;
     }
 
-    @Override
-    public boolean shouldGenerateBedrock() {
-        return false;
-    }
+    // No shouldGenerateBedrock() override: the base method is deprecated and already defaults to false,
+    // which is exactly what a flat walled realm wants — the floor is written by generateSurface.
 
     @Override
     public boolean shouldGenerateCaves() {

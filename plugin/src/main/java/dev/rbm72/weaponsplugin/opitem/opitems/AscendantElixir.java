@@ -100,7 +100,13 @@ public final class AscendantElixir extends OpItem {
         return Sound.ITEM_HONEY_BOTTLE_DRINK;
     }
 
-    /** Bottle colour and a clean tooltip: the base type is inert so the client has no effect list to print. */
+    /**
+     * Bottle colour and a clean tooltip: the base type is inert so the client has no effect list to
+     * print. {@code HIDE_ADDITIONAL_TOOLTIP} is deprecated in favour of the item-data-component
+     * tooltip-display API, which is still experimental in this Paper build; every other item family
+     * here reaches for {@link ItemFlag} and they all have to keep agreeing, so this one does too.
+     */
+    @SuppressWarnings("deprecation")
     @Override
     protected void decorate(ItemMeta meta) {
         if (meta instanceof PotionMeta potion) {

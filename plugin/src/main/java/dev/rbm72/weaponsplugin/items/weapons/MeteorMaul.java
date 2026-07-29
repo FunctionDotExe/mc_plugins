@@ -5,6 +5,7 @@ import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.util.Grounded;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Color;
@@ -208,7 +209,8 @@ public final class MeteorMaul extends Weapon {
                 continue;
             }
             BlockData data = ground.getBlockData();
-            FallingBlock debris = world.spawnFallingBlock(ground.getLocation().add(0.5, 0.3, 0.5), data);
+            FallingBlock debris = world.spawn(ground.getLocation().add(0.5, 0.3, 0.5), FallingBlock.class,
+                    fb -> fb.setBlockData(data));
             debris.setDropItem(false);
             debris.setCancelDrop(true);
             debris.setHurtEntities(false);
@@ -269,7 +271,7 @@ public final class MeteorMaul extends Weapon {
                     return;
                 }
                 Fx.point(player.getLocation(), Particle.FLAME, 3);
-                if ((ticks > 3 && player.isOnGround()) || ticks >= maxTicks) {
+                if ((ticks > 3 && Grounded.onGround(player)) || ticks >= maxTicks) {
                     cancel();
                     slam(player, player.getLocation(), damage, radius);
                     return;
@@ -291,7 +293,8 @@ public final class MeteorMaul extends Weapon {
         double ox = ThreadLocalRandom.current().nextDouble(-1.5, 1.5);
         double oz = ThreadLocalRandom.current().nextDouble(-1.5, 1.5);
         Location spawnAt = target.clone().add(ox, meteorSpawnHeight, oz);
-        FallingBlock meteor = world.spawnFallingBlock(spawnAt, Material.MAGMA_BLOCK.createBlockData());
+        BlockData meteorData = Material.MAGMA_BLOCK.createBlockData();
+        FallingBlock meteor = world.spawn(spawnAt, FallingBlock.class, fb -> fb.setBlockData(meteorData));
         meteor.setDropItem(false);
         meteor.setCancelDrop(true);
         meteor.setHurtEntities(false);
@@ -362,7 +365,7 @@ public final class MeteorMaul extends Weapon {
                     return;
                 }
                 Fx.point(player.getLocation(), Particle.CRIT, 4);
-                if ((ticks > 2 && player.isOnGround()) || ticks >= 14) {
+                if ((ticks > 2 && Grounded.onGround(player)) || ticks >= 14) {
                     cancel();
                     slam(player, player.getLocation(), aftershockDamage * rarity().statMultiplier(), aftershockRadius);
                     return;

@@ -4,6 +4,7 @@ import dev.rbm72.weaponsplugin.boss.Arena;
 import dev.rbm72.weaponsplugin.boss.grief.Grief;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.ui.ActionBarHub;
+import dev.rbm72.weaponsplugin.util.Grounded;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Location;
@@ -476,7 +477,7 @@ final class Duel {
                 continue;
             }
             // Jumped it: the sweep is low, so anyone genuinely off the ground clears it.
-            if (!player.isOnGround() && player.getLocation().getY() > at.getY() + 0.6) {
+            if (!Grounded.onGround(player) && player.getLocation().getY() > at.getY() + 0.6) {
                 Fx.sound(player.getLocation(), Sound.ENTITY_PLAYER_ATTACK_NODAMAGE, 1.0f, 1.4f);
                 continue;
             }

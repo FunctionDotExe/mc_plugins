@@ -8,6 +8,7 @@ import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
+import org.bukkit.block.data.FaceAttachable;
 import org.bukkit.block.data.type.Piston;
 import org.bukkit.block.data.type.Switch;
 
@@ -66,7 +67,7 @@ final class Pistons {
             // the extend genuine rather than a scripted animation.
             Block leverBlock = pistonBlock.getRelative(BlockFace.UP);
             Switch leverData = (Switch) Material.LEVER.createBlockData();
-            leverData.setFace(Switch.Face.FLOOR);
+            leverData.setAttachedFace(FaceAttachable.AttachedFace.FLOOR);
             leverData.setFacing(outward);
             Grief.setMechanicBlock(fight.griefContext(), leverBlock, Material.LEVER);
             leverBlock.setBlockData(leverData, false);

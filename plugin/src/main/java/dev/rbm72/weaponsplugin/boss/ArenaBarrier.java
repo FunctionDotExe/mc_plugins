@@ -65,7 +65,6 @@ public final class ArenaBarrier {
             return;
         }
 
-        double captureSq = squared(radius * CAPTURE_FACTOR);
         double releaseSq = squared(radius * RELEASE_FACTOR);
 
         for (Player player : Arena.playersNear(center, radius * CAPTURE_FACTOR)) {

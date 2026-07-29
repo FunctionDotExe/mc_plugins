@@ -1,13 +1,11 @@
 package dev.rbm72.weaponsplugin.boss.events;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
-import dev.rbm72.weaponsplugin.boss.Arena;
 import dev.rbm72.weaponsplugin.boss.BossEvent;
 import dev.rbm72.weaponsplugin.boss.BossInstance;
 import dev.rbm72.weaponsplugin.boss.MechanicBar;
 import dev.rbm72.weaponsplugin.boss.props.ArenaTotem;
 import dev.rbm72.weaponsplugin.fx.Fx;
-import dev.rbm72.weaponsplugin.ui.ActionBarHub;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -18,7 +16,6 @@ import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
-import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
@@ -44,7 +41,6 @@ import java.util.concurrent.ThreadLocalRandom;
 public final class WardplateAuctionEvent extends BossEvent {
 
     private static final Color PLATE_GOLD = Color.fromRGB(212, 175, 55);
-    private static final long NOTICE_MS = 1000;
 
     private final double[] triggers;
     private final int plateCount;
@@ -58,7 +54,6 @@ public final class WardplateAuctionEvent extends BossEvent {
     private BukkitTask task;
     private Runnable onComplete;
     private boolean resolved;
-    private int destroyed;
 
     public WardplateAuctionEvent(WeaponsPlugin plugin, String bossId, double[] triggers) {
         super(plugin, bossId);
@@ -94,7 +89,6 @@ public final class WardplateAuctionEvent extends BossEvent {
     public void run(BossInstance instance, Runnable onComplete) {
         this.onComplete = onComplete;
         this.resolved = false;
-        this.destroyed = 0;
         plates.clear();
 
         Location center = instance.arena().center();
@@ -156,7 +150,6 @@ public final class WardplateAuctionEvent extends BossEvent {
         if (resolved) {
             return;
         }
-        destroyed++;
         Location loc = instance.entity().getLocation();
         // Deliberately no action-bar notice here. The running count already lives on the mechanic bar,
         // and firing a PRIORITY_NOTICE flash per plate is precisely what was smothering every other

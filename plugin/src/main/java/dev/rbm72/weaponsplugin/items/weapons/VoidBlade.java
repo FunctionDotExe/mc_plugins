@@ -184,6 +184,14 @@ public final class VoidBlade extends Weapon {
         return Sound.BLOCK_PORTAL_AMBIENT;
     }
 
+    /**
+     * {@code DamageModifier} is deprecated with no replacement that can zero one term of a damage
+     * calculation already in flight — the new damage API only exposes the final number, and rewriting
+     * the armour reduction by hand here would have to re-derive vanilla's own armour/toughness formula
+     * and then drift from it on every version bump. Zeroing the ARMOR modifier is still the only way to
+     * say "this hit ignores armour" and have the server do the arithmetic, so the call stays.
+     */
+    @SuppressWarnings("deprecation")
     @Override
     public void onMeleeDamage(Player attacker, LivingEntity victim, EntityDamageByEntityEvent event) {
         if (ThreadLocalRandom.current().nextDouble() < armorBypassChance) {

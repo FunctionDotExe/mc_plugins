@@ -14,6 +14,7 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.AbstractArrow;
 import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
@@ -327,7 +328,8 @@ public final class WyrmscaleBow extends Weapon {
             return;
         }
         Location start = strike.clone().add(0, 8, 0);
-        FallingBlock meteor = world.spawnFallingBlock(start, Material.MAGMA_BLOCK.createBlockData());
+        BlockData meteorData = Material.MAGMA_BLOCK.createBlockData();
+        FallingBlock meteor = world.spawn(start, FallingBlock.class, fb -> fb.setBlockData(meteorData));
         meteor.setDropItem(false);
         meteor.setCancelDrop(true);
         meteor.setHurtEntities(false);

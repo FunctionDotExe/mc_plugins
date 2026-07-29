@@ -1,6 +1,5 @@
 package dev.rbm72.weaponsplugin.structuregen;
 
-import org.bukkit.Material;
 import org.bukkit.World;
 
 import java.util.Random;

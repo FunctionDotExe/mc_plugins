@@ -30,7 +30,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Earthbending-style spike weapon: every ability raises real, physically-present
@@ -279,8 +278,12 @@ public final class SpikequakeWarpick extends Weapon {
         Fx.sound(player, castSound(), 1.0f, 0.9f);
         Set<UUID> alreadyHit = new HashSet<>();
 
-        for (int i = 1; i <= 4; i++) {
-            Location point = origin.clone().add(direction.clone().multiply(i * 1.4));
+        // Spacing is derived so the last spike erupts at impale-range: the reach is the tunable, the
+        // count just decides how finely that reach is subdivided.
+        int spikeCount = configInt("impale-spike-count", 4);
+        double spikeSpacing = impaleRange / spikeCount;
+        for (int i = 1; i <= spikeCount; i++) {
+            Location point = origin.clone().add(direction.clone().multiply(i * spikeSpacing));
             Block ground = world.getHighestBlockAt(point.getBlockX(), point.getBlockZ());
             Location base = ground.getLocation().add(0.5, 1.0, 0.5);
             plugin.getServer().getScheduler().runTaskLater(plugin,
@@ -366,7 +369,7 @@ public final class SpikequakeWarpick extends Weapon {
                     return;
                 }
                 for (Entity entity : world.getNearbyEntities(trapLoc, trapTriggerRadius, 1.5, trapTriggerRadius)) {
-                    if (entity instanceof LivingEntity living && !entity.equals(player)) {
+                    if (entity instanceof LivingEntity && !entity.equals(player)) {
                         triggered = true;
                         Fx.sound(trapLoc, hitSound(), 1.2f, 0.8f);
                         int ring = 8;

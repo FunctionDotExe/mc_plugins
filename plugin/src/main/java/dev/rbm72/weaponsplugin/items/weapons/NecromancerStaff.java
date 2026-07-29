@@ -300,13 +300,11 @@ public final class NecromancerStaff extends Weapon {
 
     @Override
     public void ability3(Player player) {
-        double damage = barrageDamage * rarity().statMultiplier();
         Location eye = player.getEyeLocation();
 
         for (int i = 0; i < barrageProjectileCount; i++) {
             double offsetDegrees = (i - (barrageProjectileCount - 1) / 2.0) * barrageSpreadDegrees;
             Vector direction = eye.getDirection().clone();
-            Vector axis = new Vector(0, 1, 0);
             double radians = Math.toRadians(offsetDegrees);
             Vector rotated = rotateAroundY(direction, radians);
 
@@ -369,7 +367,7 @@ public final class NecromancerStaff extends Weapon {
 
         Zombie guardian = world.spawn(spawnLoc, Zombie.class, mob -> {
             mob.setCanPickupItems(false);
-            mob.setBaby(false);
+            mob.setAdult();
             double baseHealth = mob.getAttribute(Attribute.MAX_HEALTH).getBaseValue();
             mob.getAttribute(Attribute.MAX_HEALTH).setBaseValue(baseHealth * guardianHealthMultiplier * rarity().statMultiplier());
             mob.setHealth(mob.getAttribute(Attribute.MAX_HEALTH).getValue());

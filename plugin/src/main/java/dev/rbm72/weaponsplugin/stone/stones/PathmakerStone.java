@@ -4,6 +4,7 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.stone.Stone;
+import dev.rbm72.weaponsplugin.util.Grounded;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Material;
@@ -94,7 +95,7 @@ public final class PathmakerStone extends Stone {
         }
         // Only on the way down, and only once the player has actually left the ground: bridging upward mid-jump
         // would place a block into the arc they are still travelling through.
-        if (player.isOnGround() || player.getVelocity().getY() > 0) {
+        if (Grounded.onGround(player) || player.getVelocity().getY() > 0) {
             return;
         }
 

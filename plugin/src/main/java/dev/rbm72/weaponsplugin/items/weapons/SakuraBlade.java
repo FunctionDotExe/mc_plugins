@@ -39,7 +39,6 @@ public final class SakuraBlade extends Weapon {
     private final double cleaveDamage;
     private final double cleaveRange;
     private final double dashDamage;
-    private final double dashDistance;
     private final double bloomDamage;
     private final double bloomRadius;
     private final double fieldRadius;
@@ -54,7 +53,6 @@ public final class SakuraBlade extends Weapon {
         this.cleaveDamage = configDouble("cleave-damage", 4.0);
         this.cleaveRange = configDouble("cleave-range", 3.0);
         this.dashDamage = configDouble("dash-damage", 4.5);
-        this.dashDistance = configDouble("dash-distance", 5.0);
         this.bloomDamage = configDouble("bloom-damage", 5.0);
         this.bloomRadius = configDouble("bloom-radius", 3.5);
         this.fieldRadius = configDouble("field-radius", 3.0);

@@ -5,6 +5,7 @@ import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.util.Grounded;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Color;
@@ -13,6 +14,7 @@ import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.FallingBlock;
 import org.bukkit.entity.Item;
@@ -226,7 +228,8 @@ public final class Anvilfall extends Weapon {
             return;
         }
         Location spawnAt = target.clone().add(0, 10, 0);
-        FallingBlock anvil = world.spawnFallingBlock(spawnAt, Material.ANVIL.createBlockData());
+        BlockData anvilData = Material.ANVIL.createBlockData();
+        FallingBlock anvil = world.spawn(spawnAt, FallingBlock.class, fb -> fb.setBlockData(anvilData));
         anvil.setDropItem(false);
         anvil.setCancelDrop(true);
         anvil.setHurtEntities(false);
@@ -289,7 +292,7 @@ public final class Anvilfall extends Weapon {
                     return;
                 }
                 Fx.point(player.getLocation(), Particle.CRIT, 2);
-                if ((ticks > 3 && player.isOnGround()) || ticks >= 30) {
+                if ((ticks > 3 && Grounded.onGround(player)) || ticks >= 30) {
                     cancel();
                     Location loc = player.getLocation();
                     World world = loc.getWorld();
@@ -328,7 +331,8 @@ public final class Anvilfall extends Weapon {
         }
         Location start = player.getEyeLocation();
         Vector direction = start.getDirection().normalize();
-        FallingBlock anvil = world.spawnFallingBlock(start, Material.ANVIL.createBlockData());
+        BlockData anvilData = Material.ANVIL.createBlockData();
+        FallingBlock anvil = world.spawn(start, FallingBlock.class, fb -> fb.setBlockData(anvilData));
         anvil.setDropItem(false);
         anvil.setCancelDrop(true);
         anvil.setHurtEntities(false);

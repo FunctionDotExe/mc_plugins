@@ -10,7 +10,6 @@ import dev.rbm72.weaponsplugin.fx.Fx;
 import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.Particle;
 import org.bukkit.Sound;
 
 /** The king rips chunks of ground from beneath him and hurls them at the target. */

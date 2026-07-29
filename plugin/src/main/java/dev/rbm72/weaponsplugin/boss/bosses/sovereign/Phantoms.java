@@ -9,7 +9,9 @@ import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.attribute.Attribute;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.FallingBlock;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
@@ -116,8 +118,9 @@ final class Phantoms {
         for (int i = 0; i < count; i++) {
             double ox = ThreadLocalRandom.current().nextDouble(-0.4, 0.4);
             double oz = ThreadLocalRandom.current().nextDouble(-0.4, 0.4);
-            var shard = world.spawnFallingBlock(at.clone().add(ox, 3.0 + i * 0.6, oz),
-                    Material.OBSIDIAN.createBlockData());
+            BlockData shardData = Material.OBSIDIAN.createBlockData();
+            var shard = world.spawn(at.clone().add(ox, 3.0 + i * 0.6, oz), FallingBlock.class,
+                    fb -> fb.setBlockData(shardData));
             shard.setDropItem(false);
             shard.setCancelDrop(true);
             shard.setHurtEntities(false);

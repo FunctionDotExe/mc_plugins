@@ -169,7 +169,8 @@ public final class Grief {
         if (world == null || ctx.instance().liveFallingBlockCount() >= ctx.instance().boss().maxFallingBlocks()) {
             return;
         }
-        FallingBlock block = world.spawnFallingBlock(from, material.createBlockData());
+        BlockData blockData = material.createBlockData();
+        FallingBlock block = world.spawn(from, FallingBlock.class, fb -> fb.setBlockData(blockData));
         block.setDropItem(false);
         block.setCancelDrop(true);
         block.setHurtEntities(false);
@@ -244,7 +245,8 @@ public final class Grief {
             settle(ctx, column, material, damage, radius, onLand);
             return;
         }
-        FallingBlock falling = world.spawnFallingBlock(from, material.createBlockData());
+        BlockData fallingData = material.createBlockData();
+        FallingBlock falling = world.spawn(from, FallingBlock.class, fb -> fb.setBlockData(fallingData));
         falling.setDropItem(false);
         falling.setCancelDrop(true);
         falling.setHurtEntities(false);

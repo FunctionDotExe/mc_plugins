@@ -9,7 +9,6 @@ import dev.rbm72.weaponsplugin.boss.telegraph.Telegraph;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import org.bukkit.Color;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.entity.Entity;

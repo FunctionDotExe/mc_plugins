@@ -5,7 +5,6 @@ import dev.rbm72.weaponsplugin.fx.Fx;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Location;
-import org.bukkit.Particle;
 import org.bukkit.util.Vector;
 
 /**

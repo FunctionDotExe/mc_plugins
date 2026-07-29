@@ -270,7 +270,6 @@ public final class ArcaneStaff extends Weapon {
     @Override
     public void ability3(Player player) {
         Vector direction = player.getLocation().getDirection().normalize();
-        Location target = player.getLocation().clone();
         double step = 0.5;
         Location best = player.getLocation();
         for (double d = step; d <= blinkDistance; d += step) {
