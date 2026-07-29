@@ -18,6 +18,10 @@ public final class RealmRegistry {
         return Optional.ofNullable(realms.get(id.toLowerCase(Locale.ROOT)));
     }
 
+    public Optional<Realm> byBossId(String bossId) {
+        return realms.values().stream().filter(realm -> realm.bossId().equals(bossId)).findFirst();
+    }
+
     public Collection<Realm> all() {
         return realms.values();
     }

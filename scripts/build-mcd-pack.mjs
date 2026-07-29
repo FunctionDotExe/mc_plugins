@@ -34,11 +34,18 @@ const PACK_NAME = 'FunctionsFunnyWeapons';
  *
  * Matched on silhouette first, then theme/palette. Every entry here is unique:
  * weapons that used to double up on an MCD model were moved to BOM_MAPPING.
+ *
+ * The five `spears/<pike name>` entries are palette-shifted derivatives of the five MCD
+ * spear sprites, not upstream art — MCD ships exactly five spear silhouettes and all five
+ * were already taken. `scripts/derive-spear-textures.py` regenerates them, and a fresh
+ * `--mcd <upstream>` import must re-run it, because importing replaces the whole vendored
+ * texture tree.
  */
 const MCD_MAPPING = {
   anglers_hook: 'maces/flail',
   apotheosis: 'swords/heartstealer',
   arcane_staff: 'staffs/battlestaff',
+  arcpike: 'spears/arcpike',
   ballista_crossbow: 'crossbows/doom_crossbow',
   blastcaller: 'crossbows/firebolt_thrower',
   blood_reaper: 'others/jailors_scythe',
@@ -46,6 +53,7 @@ const MCD_MAPPING = {
   chrono_blade: 'swords/rapier',
   cinder_cleaver: 'axes/firebrand',
   cryoclasm: 'swords/freezing_foil',
+  crystalpike: 'spears/crystalpike',
   dawnbreaker: 'swords/hawkbrand',
   dragon_fang: 'axes/cursed_axe',
   dreadlance: 'spears/grave_bane',
@@ -56,6 +64,7 @@ const MCD_MAPPING = {
   flame_katana: 'swords/masters_katana',
   frost_scythe: 'others/frost_scythe',
   glacial_scepter: 'staffs/growing_staff',
+  harrowpike: 'spears/harrowpike',
   hive_breaker: 'swords/beestinger',
   hunters_crossbow: 'crossbows/slayer_crossbow',
   ironclaw_knuckles: 'knifes/nightmares_bite',
@@ -76,8 +85,10 @@ const MCD_MAPPING = {
   storm_chakrams: 'knifes/the_last_laugh_silver',
   stormbreaker: 'swords/broadsword',
   stormreach_halberd: 'axes/whirlwind',
+  sunderpike: 'spears/sunderpike',
   tearfall: 'knifes/fangs_of_frost',
   tempest_maul: 'maces/hammer_of_gravity',
+  tetherpike: 'spears/tetherpike',
   thunder_hammer: 'maces/stormlander',
   venomtip_javelin: 'spears/venom_glaive',
   vitriol: 'knifes/the_last_laugh_gold',

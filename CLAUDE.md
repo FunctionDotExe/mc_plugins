@@ -126,6 +126,15 @@ weapon that wants terrain writes it through `items/kit/TempTerrain`, the time-ke
 have no fight-end to roll back at). Never `block.setType`, never a bare `world.spawn` of an explosive.
 `items/kit/Counterplay` is the third: one call per boss verb a drop is built to answer.
 
+**Spears cast by lunging, and that's a per-weapon opt-in.** A `*_SPEAR` material's right-click is already
+a vanilla mechanic (hold = charge, release = lunge), so a spear weapon overrides `ability1OnLunge()` to
+`true`: `WeaponInteractListener` then stops cancelling the main-hand right-click — that cancel is what would
+otherwise deny the charge and make the ability unreachable — and `WeaponLungeListener` fires ability1 from
+`EntityLungeEvent` through the same cooldown/switch-lock/`CastFx` path. The lunge itself is never gated: a
+spear on cooldown still lunges, and `lungePowerBonus()` is a stat that applies either way. A spear ability
+has no idea where its caster will end up, so `items/kit/LungeStrike` is the pair of helpers for that —
+`onFirstContact` (what the lunge ran into) and `afterLunge` (where it came to rest). Slots 2–4 are unchanged.
+
 **Stones have two tick cadences.** `Stone.onEquipTick` is 2Hz (`StoneTickTask`) and suits refreshing a
 potion effect. Anything that has to answer a movement input — grabbing a wall, arming a double jump,
 freezing the water you just stepped onto — goes in `Stone.onFastTick`, driven every tick by

@@ -112,6 +112,11 @@ import dev.rbm72.weaponsplugin.ridable.ridables.WitherSaddle;
 import dev.rbm72.weaponsplugin.realm.RealmDefinitions;
 import dev.rbm72.weaponsplugin.realm.RealmManager;
 import dev.rbm72.weaponsplugin.realm.RealmRegistry;
+import dev.rbm72.weaponsplugin.structuregen.CartographerTradeListener;
+import dev.rbm72.weaponsplugin.structuregen.DungeonBuilder;
+import dev.rbm72.weaponsplugin.structuregen.DungeonMapRevealListener;
+import dev.rbm72.weaponsplugin.structuregen.DungeonMobDeathListener;
+import dev.rbm72.weaponsplugin.structuregen.LoadStructureCommand;
 import dev.rbm72.weaponsplugin.stone.StoneActionBarSource;
 import dev.rbm72.weaponsplugin.stone.StoneManager;
 import dev.rbm72.weaponsplugin.stone.StoneRegistry;
@@ -140,6 +145,7 @@ import dev.rbm72.weaponsplugin.items.weapons.AnglersHook;
 import dev.rbm72.weaponsplugin.items.weapons.Anvilfall;
 import dev.rbm72.weaponsplugin.items.weapons.Apotheosis;
 import dev.rbm72.weaponsplugin.items.weapons.ArcaneStaff;
+import dev.rbm72.weaponsplugin.items.weapons.Arcpike;
 import dev.rbm72.weaponsplugin.items.weapons.BallistaCrossbow;
 import dev.rbm72.weaponsplugin.items.weapons.Blastcaller;
 import dev.rbm72.weaponsplugin.items.weapons.BloodReaper;
@@ -148,6 +154,7 @@ import dev.rbm72.weaponsplugin.items.weapons.Chainwhip;
 import dev.rbm72.weaponsplugin.items.weapons.ChronoBlade;
 import dev.rbm72.weaponsplugin.items.weapons.CinderCleaver;
 import dev.rbm72.weaponsplugin.items.weapons.Cryoclasm;
+import dev.rbm72.weaponsplugin.items.weapons.Crystalpike;
 import dev.rbm72.weaponsplugin.items.weapons.Dawnbreaker;
 import dev.rbm72.weaponsplugin.items.weapons.DragonFang;
 import dev.rbm72.weaponsplugin.items.weapons.Dreadlance;
@@ -158,6 +165,7 @@ import dev.rbm72.weaponsplugin.items.weapons.ExcavatorsPick;
 import dev.rbm72.weaponsplugin.items.weapons.FlameKatana;
 import dev.rbm72.weaponsplugin.items.weapons.FrostScythe;
 import dev.rbm72.weaponsplugin.items.weapons.GlacialScepter;
+import dev.rbm72.weaponsplugin.items.weapons.Harrowpike;
 import dev.rbm72.weaponsplugin.items.weapons.HiveBreaker;
 import dev.rbm72.weaponsplugin.items.weapons.HuntersCrossbow;
 import dev.rbm72.weaponsplugin.items.weapons.IronclawKnuckles;
@@ -184,8 +192,10 @@ import dev.rbm72.weaponsplugin.items.weapons.Starfang;
 import dev.rbm72.weaponsplugin.items.weapons.Stormbreaker;
 import dev.rbm72.weaponsplugin.items.weapons.StormChakrams;
 import dev.rbm72.weaponsplugin.items.weapons.StormreachHalberd;
+import dev.rbm72.weaponsplugin.items.weapons.Sunderpike;
 import dev.rbm72.weaponsplugin.items.weapons.Tearfall;
 import dev.rbm72.weaponsplugin.items.weapons.TempestMaul;
+import dev.rbm72.weaponsplugin.items.weapons.Tetherpike;
 import dev.rbm72.weaponsplugin.items.weapons.ThunderHammer;
 import dev.rbm72.weaponsplugin.items.weapons.TidalTrident;
 import dev.rbm72.weaponsplugin.items.weapons.VenomtipJavelin;
@@ -374,6 +384,13 @@ public final class WeaponsPlugin extends JavaPlugin {
         weaponRegistry.register(new ShadowDaggers(this));
         weaponRegistry.register(new ArcaneStaff(this));
         weaponRegistry.register(new WindSpear(this));
+        // The spear family: five pikes on the Copper Age spear materials, each casting ability1 from
+        // vanilla's own charged lunge rather than from a right-click (see Weapon.ability1OnLunge).
+        weaponRegistry.register(new Harrowpike(this));
+        weaponRegistry.register(new Tetherpike(this));
+        weaponRegistry.register(new Arcpike(this));
+        weaponRegistry.register(new Sunderpike(this));
+        weaponRegistry.register(new Crystalpike(this));
         weaponRegistry.register(new TidalTrident(this));
         weaponRegistry.register(new VoidBlade(this));
         weaponRegistry.register(new SolarGreatsword(this));
@@ -452,6 +469,9 @@ public final class WeaponsPlugin extends JavaPlugin {
                 new WeaponDamageListener(this, weaponRegistry, accessoryManager, cooldownManager, bossManager,
                         ultimateChargeManager), this);
         getServer().getPluginManager().registerEvents(
+                new dev.rbm72.weaponsplugin.listeners.WeaponLungeListener(this, weaponRegistry, cooldownManager,
+                        accessoryManager, opCooldownCommand, weaponSwitchLock, ultimateChargeManager), this);
+        getServer().getPluginManager().registerEvents(
                 new AccessoryDamageListener(weaponRegistry, accessoryManager), this);
         getServer().getPluginManager().registerEvents(
                 new AccessoryKnockbackListener(accessoryManager), this);
@@ -516,6 +536,9 @@ public final class WeaponsPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new RealmListener(this), this);
         getServer().getPluginManager().registerEvents(new ConsumableUseListener(this), this);
         getServer().getPluginManager().registerEvents(new OpItemUseListener(this), this);
+        getServer().getPluginManager().registerEvents(new DungeonMobDeathListener(this), this);
+        getServer().getPluginManager().registerEvents(new CartographerTradeListener(this), this);
+        getServer().getPluginManager().registerEvents(new DungeonMapRevealListener(this), this);
 
         new WeaponTickTask(weaponRegistry).start(this);
         ultimateChargeManager.start();
@@ -623,6 +646,9 @@ public final class WeaponsPlugin extends JavaPlugin {
         GiveRidableCommand giveRidableCommand = new GiveRidableCommand(ridableRegistry);
         getCommand("giveridable").setExecutor(giveRidableCommand);
         getCommand("giveridable").setTabCompleter(giveRidableCommand);
+        LoadStructureCommand loadStructureCommand = new LoadStructureCommand(this);
+        getCommand("loadstructure").setExecutor(loadStructureCommand);
+        getCommand("loadstructure").setTabCompleter(loadStructureCommand);
 
         getLogger().info("WeaponsPlugin enabled with " + weaponRegistry.all().size() + " weapon(s) and "
                 + bossManager.all().size() + " boss(es)");
@@ -633,6 +659,7 @@ public final class WeaponsPlugin extends JavaPlugin {
         if (bossManager != null) {
             bossManager.shutdownAll();
         }
+        DungeonBuilder.shutdownAll();
         // Before the logger line, and unconditionally: any weapon terrain still waiting on its TTL has
         // no tick left to expire on, so a restart is the one way temporary blocks become permanent ones.
         if (tempTerrain != null) {

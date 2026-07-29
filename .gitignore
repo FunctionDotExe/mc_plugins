@@ -1,6 +1,9 @@
 # Local Paper dev server (runtime, world data, logs, downloaded jars)
 server/
 
+# Parked Docker play-server deploy (compose files + auth keys + RCON password)
+deployable/
+
 # Node
 node_modules/
 

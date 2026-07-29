@@ -79,6 +79,34 @@ public abstract class Weapon {
         return "";
     }
 
+    /**
+     * True when ability1 fires from the vanilla spear lunge instead of from a bare right-click.
+     * <p>
+     * Spears are the one material in the game whose right-click is already a mechanic: holding it charges,
+     * releasing it lunges the player forward. §0.1 says name the real Minecraft object rather than simulate
+     * it, and the real object here is the lunge itself — so a spear weapon leaves the charge alone and hangs
+     * its ability on the release, via {@link dev.rbm72.weaponsplugin.listeners.WeaponLungeListener}. The
+     * interact listener sees this flag and stops cancelling the main-hand right-click, which is what lets
+     * the charge happen at all.
+     * <p>
+     * The other three slots are unaffected: sneak, off-hand and sneak-off-hand still route through
+     * {@code WeaponInteractListener} exactly as they do for a sword.
+     */
+    public boolean ability1OnLunge() {
+        return false;
+    }
+
+    /**
+     * Extra vanilla lunge power this weapon carries, added to whatever {@link org.bukkit.enchantments.Enchantment#LUNGE}
+     * would give it.
+     * <p>
+     * Applied on every lunge, on cooldown or not: it is the weapon's <em>stat</em>, not its ability. A
+     * player who just spent ability1 should still lunge like they are holding a great spear.
+     */
+    public int lungePowerBonus() {
+        return 0;
+    }
+
     /** Right-click, main hand, sneaking. No-op unless overridden. */
     public void ability2(Player player) {
     }
@@ -287,19 +315,19 @@ public abstract class Weapon {
      * look, since pointing at a model that doesn't exist in the pack renders as a missing texture.
      */
     private static final Set<String> TEXTURED_IDS = Set.of(
-            "anglers_hook", "anvilfall", "apotheosis", "arcane_staff",
+            "anglers_hook", "anvilfall", "apotheosis", "arcane_staff", "arcpike",
             "ballista_crossbow", "blastcaller", "blood_reaper", "celestial_bow",
-            "chainwhip", "chrono_blade", "cinder_cleaver", "cryoclasm",
+            "chainwhip", "chrono_blade", "cinder_cleaver", "cryoclasm", "crystalpike",
             "dawnbreaker", "dragon_fang", "dreadlance", "duskfall_mace",
             "earthbreaker_axe", "excavators_pick", "exsanguinator", "flame_katana",
-            "frost_scythe", "glacial_scepter", "hive_breaker", "hunters_crossbow",
+            "frost_scythe", "glacial_scepter", "harrowpike", "hive_breaker", "hunters_crossbow",
             "ironclaw_knuckles", "kings_judgment", "legionnaires_pike", "lunar_blade",
             "maelstrom_trident", "meteor_maul", "mournsong", "necromancer_staff",
             "nullblade", "plague_scythe", "rotscourge", "sakura_blade",
             "serpentfang_crossbow", "shadow_daggers", "solar_greatsword", "soulcrown",
             "soulharvester", "spikequake_warpick", "spinelash", "starbreaker",
-            "starfang", "storm_chakrams", "stormbreaker", "stormreach_halberd",
-            "tearfall", "tempest_maul", "thunder_hammer", "tidal_trident",
+            "starfang", "storm_chakrams", "stormbreaker", "stormreach_halberd", "sunderpike",
+            "tearfall", "tempest_maul", "tetherpike", "thunder_hammer", "tidal_trident",
             "venomtip_javelin", "vitriol", "void_blade", "wind_spear",
             "wyrmscale_bow");
 

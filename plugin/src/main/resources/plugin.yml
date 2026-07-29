@@ -121,6 +121,10 @@ commands:
   hearts:
     description: Shows your bonus-heart tally, or adds/removes hearts (op)
     usage: /hearts [show [player]] | /hearts <add|remove|set> <amount> [player]
+  loadstructure:
+    description: Generates a themed exploration dungeon for a boss, ending in a chest holding its realm crystal
+    usage: /loadstructure <bossId>
+    permission: weaponsplugin.boss.admin
 
 permissions:
   weaponsplugin.give:
