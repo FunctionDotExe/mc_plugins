@@ -54,6 +54,19 @@ public final class BossInstance {
 
     /** Enrage phase gets visibly bigger, faster, and louder — the "final form" every boss lacked. */
     private static final double ENRAGE_SCALE_MULTIPLIER = 1.35;
+    /**
+     * Minimum gap between two pit punishments for the same player. Two seconds: long enough that a lift
+     * which lands short cannot chain, short enough that deliberately dropping back into a pit still
+     * costs — §0.3 wants repeated falls to stack up and kill.
+     */
+    private static final int PIT_PUNISH_COOLDOWN_TICKS = 40;
+    /** Drop bookkeeping for anyone who hasn't fallen in this long, so the map can't grow unbounded. */
+    private static final int PIT_PUNISH_STALE_TICKS = 600;
+    /**
+     * How far a player must actually have fallen before the pit rule treats them as having fallen in.
+     * Four blocks: above any jump or step-down, below the drop into even a shallow crater.
+     */
+    private static final float PIT_MIN_FALL_BLOCKS = 4.0f;
     private static final double ENRAGE_SPEED_MULTIPLIER = 1.4;
 
     /**
@@ -83,6 +96,16 @@ public final class BossInstance {
     private final ArenaLedger ledger;
     private final MeterRegistry meters;
     private final ArenaBarrier arenaBarrier;
+    /**
+     * When each player last took the pit punishment, so it cannot fire again on the very next tick.
+     * <p>
+     * The lift in {@link #enforcePitFloor()} aims for solid ground, but "solid ground" is a moving target
+     * in an arena whose floor the fight is actively deleting, and a lift that lands short re-triggers the
+     * check immediately. This is the backstop that keeps a bad landing costing one hit instead of one hit
+     * per tick — the punishment is meant to be heavy and occasional, and nothing about it should be able
+     * to repeat at tick rate.
+     */
+    private final Map<UUID, Integer> lastPitPunishTick = new HashMap<>();
     private final BossAmbiance.Handle ambianceHandle;
     private final BossMusic.Handle musicHandle;
     private final List<BukkitTask> tasks = new ArrayList<>();
@@ -898,23 +921,57 @@ public final class BossInstance {
         if (world == null) {
             return;
         }
+        int now = Bukkit.getCurrentTick();
         double floorY = arena.center().getY() - boss.pitDepth();
         for (Player player : arena.playersInside()) {
             if (!Arena.isCombatant(player) || player.getLocation().getY() > floorY) {
                 continue;
             }
+            // Below the threshold is not the same as having fallen into something, and conflating the
+            // two is what made this fire on players who were simply standing still.
+            //
+            // floorY is measured down from arena.center(), which is the boss's frozen *spawn* Y — and in
+            // a realm that is a throne or a high point, not the floor. So the ordinary arena floor can
+            // already sit under the threshold before anyone falls anywhere, and a fight that deletes
+            // floor (the Worldender floods 90% of it away) drops the standable ground further still.
+            // Every player in the arena then reads as permanently pitted: lifted, hit and dropped again
+            // forever, on solid ground, with no pit anywhere near them.
+            //
+            // Fall distance is the thing actually being asked about. It is zero for someone standing,
+            // near-zero for someone jumping, and large for someone who has genuinely dropped into a
+            // hole — which is the only case §0.3's "heavy damage, then put them back on solid footing"
+            // is written for.
+            if (player.getFallDistance() < PIT_MIN_FALL_BLOCKS) {
+                continue;
+            }
+            Integer punishedAt = lastPitPunishTick.get(player.getUniqueId());
+            if (punishedAt != null && now - punishedAt < PIT_PUNISH_COOLDOWN_TICKS) {
+                continue;
+            }
+
             Location safe = player.getLocation().clone();
-            safe.setY(world.getHighestBlockYAt(safe.getBlockX(), safe.getBlockZ()) + 1.0);
+            // The lift has to actually clear the pit, and the column's own surface is not guaranteed to.
+            // Half the roster deletes floor on purpose — the Worldender floods 90% of the arena away —
+            // so getHighestBlockYAt can easily come back at or below the threshold that defines a pit.
+            // Landing the player back under it means this method fires again next tick, and the tick
+            // after: a teleport, a hit and a landing sound every tick for as long as they stand there.
+            // Server-side that is invisible (a teleport raises no damage or velocity event), and in play
+            // it reads as being permanently stun-locked with no attacker — momentum gone, jumps eaten.
+            // Falling back on the arena's own floor level guarantees the exit condition is really met.
+            double columnSurface = world.getHighestBlockYAt(safe.getBlockX(), safe.getBlockZ()) + 1.0;
+            safe.setY(columnSurface > floorY ? columnSurface : arena.center().getY() + 1.0);
             // Lift first, damage second: taking the hit while still falling would let the vanilla
             // death message read as a fall, and would stack another tick of pit checks on the way up.
             player.teleport(safe);
             player.setFallDistance(0f);
+            lastPitPunishTick.put(player.getUniqueId(), now);
             AttributeInstance maxHealth = player.getAttribute(Attribute.MAX_HEALTH);
             double healthCap = maxHealth != null ? maxHealth.getValue() : 20.0;
             player.damage(Math.max(1.0, healthCap * boss.pitDamageFraction()), entity);
             Fx.burst(safe, Particle.SMOKE, 30, 0.6);
             Fx.sound(safe, Sound.ENTITY_GENERIC_BIG_FALL, 1.0f, 0.7f);
         }
+        lastPitPunishTick.values().removeIf(tick -> now - tick > PIT_PUNISH_STALE_TICKS);
     }
 
     /**

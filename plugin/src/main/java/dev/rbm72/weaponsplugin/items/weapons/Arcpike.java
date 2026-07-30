@@ -4,9 +4,9 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
-import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.items.SpearWeapon;
+import dev.rbm72.weaponsplugin.items.kit.ChargeStrike;
 import dev.rbm72.weaponsplugin.items.kit.Counterplay;
-import dev.rbm72.weaponsplugin.items.kit.LungeStrike;
 import dev.rbm72.weaponsplugin.items.kit.Props;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -39,7 +39,7 @@ import java.util.Set;
  * onto itself for as long as it stands, and it stands for a handful of seconds, in the open, where anything
  * can break it — the ability is a piece of terrain, not a targeted spell.
  */
-public final class Arcpike extends Weapon {
+public final class Arcpike extends SpearWeapon {
 
     private static final Color COPPER = Color.fromRGB(216, 128, 72);
 
@@ -94,10 +94,6 @@ public final class Arcpike extends Weapon {
         return configDouble("melee-damage-bonus", 3.0);
     }
 
-    @Override
-    public boolean ability1OnLunge() {
-        return true;
-    }
 
     @Override
     public int lungePowerBonus() {
@@ -122,8 +118,8 @@ public final class Arcpike extends Weapon {
     @Override
     public List<Component> ability1Lore() {
         return List.of(
-                Component.text("Hold right-click, then release to", NamedTextColor.GRAY),
-                Component.text("lunge. Where you land, a real", NamedTextColor.GRAY),
+                Component.text("Hold right-click and run something", NamedTextColor.GRAY),
+                Component.text("down. Where you stop, a real", NamedTextColor.GRAY),
                 Component.text("lightning rod goes in and takes a", NamedTextColor.GRAY),
                 Component.text("real bolt. Grounding clears the", NamedTextColor.GRAY),
                 Component.text("boss's stacks off you.", NamedTextColor.GRAY));
@@ -174,8 +170,8 @@ public final class Arcpike extends Weapon {
     }
 
     @Override
-    public void ability1(Player player) {
-        LungeStrike.afterLunge(plugin, player, lungeSettleTicks, landing -> {
+    public void ability1(Player player, LivingEntity victim) {
+        ChargeStrike.afterCharge(plugin, player, lungeSettleTicks, landing -> {
             Vector forward = landing.getDirection().setY(0);
             Location target = forward.lengthSquared() < 1.0e-4
                     ? landing.clone()

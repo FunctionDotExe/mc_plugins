@@ -443,6 +443,33 @@ consumables:
     heal-fraction: 0.5
     regen-ticks: 120
 
+  tidecaller_flask:
+    max-charges: 3
+    recharge-seconds: 50.0
+    use-cooldown-seconds: 6.0
+    effect-ticks: 900
+    # Shorter than the rest: Dolphin's Grace is the swim-speed one, and it is
+    # meant to cover a crossing rather than the whole flooded phase.
+    dolphins-grace-ticks: 400
+
+  adrenal_shot:
+    max-charges: 2
+    recharge-seconds: 75.0
+    use-cooldown-seconds: 12.0
+    # Paid in health, floored at 1 heart — never lethal on its own.
+    health-cost: 4.0
+    strength-ticks: 200
+    strength-amplifier: 0
+    speed-ticks: 200
+    haste-ticks: 200
+
+  featherfall_draft:
+    max-charges: 4
+    recharge-seconds: 30.0
+    use-cooldown-seconds: 4.0
+    slow-falling-ticks: 300
+    jump-ticks: 300
+
 # Per-stone tunables. Every stone reads `stones.<id>.<key>` live, so a movement
 # perk retunes without a recompile. Values below are the code defaults.
 stones:
@@ -528,6 +555,51 @@ op-items:
     resistance-amplifier: 3
     regeneration-amplifier: 1
     speed-amplifier: 1
+
+  # Endless: applied with INFINITE_DURATION, and drinking again strips the set
+  # instead of re-applying (that toggle-off spends no bottle).
+  eternal_draught:
+    resistance-amplifier: 3
+    regeneration-amplifier: 1
+    night-vision-amplifier: 0
+    saturation-amplifier: 0
+
+  elemental_ward:
+    fire-resistance-amplifier: 0
+    water-breathing-amplifier: 0
+    conduit-power-amplifier: 0
+    dolphins-grace-amplifier: 0
+
+  # Timed on purpose: offence is a window you open, not a state you sit in.
+  titans_tonic:
+    duration-ticks: 4800
+    strength-amplifier: 3
+    haste-amplifier: 2
+    speed-amplifier: 2
+    jump-amplifier: 2
+    absorption-amplifier: 3
+
+  phantom_draught:
+    invisibility-amplifier: 0
+    night-vision-amplifier: 0
+    speed-amplifier: 1
+    slow-falling-amplifier: 0
+
+  prospectors_brew:
+    duration-ticks: 12000
+    haste-amplifier: 4
+    night-vision-amplifier: 0
+    speed-amplifier: 1
+    luck-amplifier: 2
+
+  second_wind:
+    absorption-ticks: 1200
+    absorption-amplifier: 3
+
+  bottled_storm:
+    bolt-count: 6
+    radius: 5
+    bolt-interval-ticks: 4
 
   heart_vessel:
     hearts-per-use: 1

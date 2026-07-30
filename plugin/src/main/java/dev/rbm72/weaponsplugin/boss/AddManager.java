@@ -50,6 +50,7 @@ public final class AddManager {
 
     private LivingEntity spawnOne(World world, Location at, EntityType type, Consumer<LivingEntity> customize) {
         LivingEntity entity = (LivingEntity) world.spawnEntity(at, type);
+        BossEntities.markAdd(entity);
         customize.accept(entity);
         tracked.add(entity.getUniqueId());
         return entity;

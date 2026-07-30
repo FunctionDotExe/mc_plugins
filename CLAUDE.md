@@ -126,14 +126,32 @@ weapon that wants terrain writes it through `items/kit/TempTerrain`, the time-ke
 have no fight-end to roll back at). Never `block.setType`, never a bare `world.spawn` of an explosive.
 `items/kit/Counterplay` is the third: one call per boss verb a drop is built to answer.
 
-**Spears cast by lunging, and that's a per-weapon opt-in.** A `*_SPEAR` material's right-click is already
-a vanilla mechanic (hold = charge, release = lunge), so a spear weapon overrides `ability1OnLunge()` to
-`true`: `WeaponInteractListener` then stops cancelling the main-hand right-click — that cancel is what would
-otherwise deny the charge and make the ability unreachable — and `WeaponLungeListener` fires ability1 from
-`EntityLungeEvent` through the same cooldown/switch-lock/`CastFx` path. The lunge itself is never gated: a
-spear on cooldown still lunges, and `lungePowerBonus()` is a stat that applies either way. A spear ability
-has no idea where its caster will end up, so `items/kit/LungeStrike` is the pair of helpers for that —
-`onFirstContact` (what the lunge ran into) and `afterLunge` (where it came to rest). Slots 2–4 are unchanged.
+**Spears cast off the charge attack, and that's a whole base class.** A `*_SPEAR` material's right-click is
+already a vanilla mechanic: `Item.use` runs the item's `KineticWeapon` component, the spear drops into an
+attack position, and it stabs whatever the player's own momentum carries it through. So the five pikes extend
+`items/SpearWeapon` (`ability1OnChargeAttack()` = `true`): `WeaponInteractListener` stops cancelling the
+main-hand right-click — that cancel is what would deny `Item.use`, which *is* the charge attack — and
+`WeaponChargeListener` fires ability1 on the connect, through the same cooldown/switch-lock/`CastFx` path.
+The attack itself is never gated: a spear on cooldown still charges. Because the connect hands over the entity
+struck, spear abilities implement `ability1(Player, LivingEntity)`; the one-arg `ability1` is `final` on
+`SpearWeapon` and just clicks. `items/kit/ChargeStrike.afterCharge` is for the abilities that want where the
+caster came to rest instead. Slots 2–4 are unchanged.
+
+Two spear traps, both already paid for:
+- **`DamageType.SPEAR` does not identify the charge attack.** Vanilla routes the jab (`PiercingWeapon`) and
+  the charge (`KineticWeapon`) through the same `LivingEntity.stabAttack`. The discriminator is
+  `player.hasActiveItem()` — the charge attack only runs while the item is in use.
+- **The charge attack is speed-gated, so a standing right-click is a legitimate no-op.**
+  `NETHERITE_SPEAR`'s `damageConditions` is `ofRelativeSpeed(175, 4.6)` after an 8-tick arm delay — below
+  ~4.6 blocks/second (sprint is ~5.6, walk ~4.3) it lands no hit and ability1 never casts. `ability/SpearChargeTask`
+  is the action-bar readout for that: winding up / too slow / armed, off `SpearWeapon.chargeArmTicks()` and
+  `chargeMinSpeed()`. Those two mirror vanilla — moving them moves the cue, not the real threshold.
+- **Lunge is the *other* mechanic, and it is enchantment-gated.** `EntityLungeEvent` is the `lunge`
+  enchantment's `post_piercing_attack` effect — the left-click jab shoving you forward — not the right-click
+  charge. A spear with no `Enchantment.LUNGE` never lunges and never fires the event, which is why
+  `Weapon.buildItem` stamps `LUNGE` (level `lungeEnchantLevel()`) onto every `ability1OnChargeAttack()`
+  weapon and `WeaponLungeListener` does nothing but add `lungePowerBonus()` on top. Vanilla still gates it:
+  no vehicle, not gliding, not in water, 7+ hunger.
 
 **Stones have two tick cadences.** `Stone.onEquipTick` is 2Hz (`StoneTickTask`) and suits refreshing a
 potion effect. Anything that has to answer a movement input — grabbing a wall, arming a double jump,

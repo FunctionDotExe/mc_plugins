@@ -3,10 +3,15 @@ package dev.rbm72.weaponsplugin.accessory;
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.ability.CooldownManager.Slot;
 import dev.rbm72.weaponsplugin.items.Weapon;
+import org.bukkit.NamespacedKey;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
+import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.inventory.EquipmentSlotGroup;
 
 import java.io.File;
 import java.io.IOException;
@@ -33,6 +38,8 @@ public final class AccessoryManager {
     private final WeaponsPlugin plugin;
     private final AccessoryRegistry registry;
     private final File folder;
+    /** Key for the knockback-immunity modifier, so {@link #syncKnockbackImmunity} can find its own work. */
+    private final NamespacedKey knockbackKey;
     private final Map<UUID, List<String>> equipped = new HashMap<>();
     /** accessory id -> timestamp its personal ability next comes off cooldown, per player. */
     private final Map<UUID, Map<String, Long>> personalAbilityCooldowns = new HashMap<>();
@@ -40,6 +47,7 @@ public final class AccessoryManager {
     public AccessoryManager(WeaponsPlugin plugin, AccessoryRegistry registry) {
         this.plugin = plugin;
         this.registry = registry;
+        this.knockbackKey = new NamespacedKey(plugin, "accessory_knockback_immunity");
         this.folder = new File(plugin.getDataFolder(), "accessories");
         if (!folder.exists()) {
             folder.mkdirs();
@@ -123,8 +131,43 @@ public final class AccessoryManager {
     }
 
     public void tick(Player player) {
+        syncKnockbackImmunity(player);
         for (Accessory accessory : equipped(player)) {
             accessory.onEquipTick(player);
+        }
+    }
+
+    /**
+     * Vanilla knockback immunity for anyone wearing an accessory that promises it, kept in sync on the
+     * accessory tick (which runs for <em>every</em> online player, so unequipping takes it straight back off).
+     * <p>
+     * {@code AccessoryKnockbackListener} cancelling {@code EntityKnockbackEvent} is not enough on its own.
+     * A shove that never raises that event sails past it — and that is most of them in a boss fight: an
+     * attack writing {@code setVelocity} directly, an explosion, a piston, a fluid push. The attribute is
+     * the source-side answer, applied by vanilla before any of those becomes an event at all, so
+     * "Immune to knockback" means it for real rather than for the one code path that happens to be
+     * observable.
+     * <p>
+     * Rebuilt from the current state each tick rather than added once on equip: attribute modifiers are
+     * saved into player data, so a non-idempotent apply double-stacks on rejoin — the same trap
+     * {@code HeartManager} documents.
+     */
+    private void syncKnockbackImmunity(Player player) {
+        AttributeInstance attribute = player.getAttribute(Attribute.KNOCKBACK_RESISTANCE);
+        if (attribute == null) {
+            return;
+        }
+        boolean wanted = negatesKnockback(player);
+        boolean present = attribute.getModifiers().stream()
+                .anyMatch(modifier -> modifier.getKey().equals(knockbackKey));
+        if (wanted == present) {
+            return;
+        }
+        if (wanted) {
+            attribute.addModifier(new AttributeModifier(
+                    knockbackKey, 1.0, AttributeModifier.Operation.ADD_NUMBER, EquipmentSlotGroup.ANY));
+        } else {
+            attribute.removeModifier(knockbackKey);
         }
     }
 

@@ -89,12 +89,22 @@ import dev.rbm72.weaponsplugin.commands.WeaponMenuCommand;
 import dev.rbm72.weaponsplugin.opitem.HeartManager;
 import dev.rbm72.weaponsplugin.opitem.OpItemRegistry;
 import dev.rbm72.weaponsplugin.opitem.opitems.AscendantElixir;
+import dev.rbm72.weaponsplugin.opitem.opitems.BottledStorm;
+import dev.rbm72.weaponsplugin.opitem.opitems.ElementalWard;
+import dev.rbm72.weaponsplugin.opitem.opitems.EternalDraught;
 import dev.rbm72.weaponsplugin.opitem.opitems.HeartVessel;
+import dev.rbm72.weaponsplugin.opitem.opitems.PhantomDraught;
+import dev.rbm72.weaponsplugin.opitem.opitems.ProspectorsBrew;
+import dev.rbm72.weaponsplugin.opitem.opitems.SecondWind;
+import dev.rbm72.weaponsplugin.opitem.opitems.TitansTonic;
 import dev.rbm72.weaponsplugin.consumable.ConsumableManager;
 import dev.rbm72.weaponsplugin.consumable.ConsumableRegistry;
+import dev.rbm72.weaponsplugin.consumable.consumables.AdrenalShot;
 import dev.rbm72.weaponsplugin.consumable.consumables.EmberheartSalve;
+import dev.rbm72.weaponsplugin.consumable.consumables.FeatherfallDraft;
 import dev.rbm72.weaponsplugin.consumable.consumables.LastLightCharm;
 import dev.rbm72.weaponsplugin.consumable.consumables.LifebloomVial;
+import dev.rbm72.weaponsplugin.consumable.consumables.TidecallerFlask;
 import dev.rbm72.weaponsplugin.consumable.consumables.WardingPoultice;
 import dev.rbm72.weaponsplugin.items.ShieldRegistry;
 import dev.rbm72.weaponsplugin.items.WeaponRegistry;
@@ -335,8 +345,18 @@ public final class WeaponsPlugin extends JavaPlugin {
         consumableRegistry.register(new EmberheartSalve(this));
         consumableRegistry.register(new WardingPoultice(this));
         consumableRegistry.register(new LastLightCharm(this));
+        consumableRegistry.register(new TidecallerFlask(this));
+        consumableRegistry.register(new AdrenalShot(this));
+        consumableRegistry.register(new FeatherfallDraft(this));
 
         opItemRegistry.register(new AscendantElixir(this));
+        opItemRegistry.register(new EternalDraught(this));
+        opItemRegistry.register(new ElementalWard(this));
+        opItemRegistry.register(new TitansTonic(this));
+        opItemRegistry.register(new PhantomDraught(this));
+        opItemRegistry.register(new ProspectorsBrew(this));
+        opItemRegistry.register(new SecondWind(this));
+        opItemRegistry.register(new BottledStorm(this));
         opItemRegistry.register(new HeartVessel(this));
 
         stoneRegistry.register(new HighstepStone(this));
@@ -384,8 +404,8 @@ public final class WeaponsPlugin extends JavaPlugin {
         weaponRegistry.register(new ShadowDaggers(this));
         weaponRegistry.register(new ArcaneStaff(this));
         weaponRegistry.register(new WindSpear(this));
-        // The spear family: five pikes on the Copper Age spear materials, each casting ability1 from
-        // vanilla's own charged lunge rather than from a right-click (see Weapon.ability1OnLunge).
+        // The spear family: five pikes on the Copper Age spear materials, each casting ability1 from what
+        // vanilla's own charge attack connects with rather than from a right-click (see SpearWeapon).
         weaponRegistry.register(new Harrowpike(this));
         weaponRegistry.register(new Tetherpike(this));
         weaponRegistry.register(new Arcpike(this));
@@ -468,9 +488,13 @@ public final class WeaponsPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(
                 new WeaponDamageListener(this, weaponRegistry, accessoryManager, cooldownManager, bossManager,
                         ultimateChargeManager), this);
+        // The spear family's ability1 rides the vanilla charge attack (WeaponChargeListener); the lunge
+        // listener is only the jab's power bonus, which is a different mechanic on a different click.
         getServer().getPluginManager().registerEvents(
-                new dev.rbm72.weaponsplugin.listeners.WeaponLungeListener(this, weaponRegistry, cooldownManager,
+                new dev.rbm72.weaponsplugin.listeners.WeaponChargeListener(this, weaponRegistry, cooldownManager,
                         accessoryManager, opCooldownCommand, weaponSwitchLock, ultimateChargeManager), this);
+        getServer().getPluginManager().registerEvents(
+                new dev.rbm72.weaponsplugin.listeners.WeaponLungeListener(weaponRegistry), this);
         getServer().getPluginManager().registerEvents(
                 new AccessoryDamageListener(weaponRegistry, accessoryManager), this);
         getServer().getPluginManager().registerEvents(
@@ -541,6 +565,8 @@ public final class WeaponsPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new DungeonMapRevealListener(this), this);
 
         new WeaponTickTask(weaponRegistry).start(this);
+        // The spear charge is silent until it is fast enough to hit, so the cue is what teaches the rule.
+        new dev.rbm72.weaponsplugin.ability.SpearChargeTask(this, weaponRegistry).start(this);
         ultimateChargeManager.start();
         tempTerrain.start();
         new SummonRetargetTask(this, summonTargetListener.key()).start();
@@ -578,6 +604,8 @@ public final class WeaponsPlugin extends JavaPlugin {
         getCommand("bossspawn").setExecutor(new BossSpawnCommand(this));
         getCommand("bossdespawn").setExecutor(new BossDespawnCommand(bossManager));
         getCommand("bossclear").setExecutor(new BossClearCommand(bossManager));
+        getCommand("bosskillall").setExecutor(
+                new dev.rbm72.weaponsplugin.boss.commands.BossKillAllCommand(bossManager));
         BossInfoCommand bossInfoCommand = new BossInfoCommand(this);
         getCommand("bossinfo").setExecutor(bossInfoCommand);
         getCommand("bossinfo").setTabCompleter(bossInfoCommand);

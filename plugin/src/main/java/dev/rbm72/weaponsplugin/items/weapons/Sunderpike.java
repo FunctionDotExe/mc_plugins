@@ -5,9 +5,8 @@ import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
-import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.items.SpearWeapon;
 import dev.rbm72.weaponsplugin.items.kit.Counterplay;
-import dev.rbm72.weaponsplugin.items.kit.LungeStrike;
 import dev.rbm72.weaponsplugin.items.kit.Props;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -42,7 +41,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * distance and ignores every number on the weapon (see {@code Props.fallingBlock}), so the blocks supply the
  * physics and the read while the balance sheet keeps a figure it can rank.
  */
-public final class Sunderpike extends Weapon {
+public final class Sunderpike extends SpearWeapon {
 
     private static final Color SLATE = Color.fromRGB(126, 142, 158);
 
@@ -50,8 +49,6 @@ public final class Sunderpike extends Weapon {
     private static final Material DEFAULT_DEBRIS = Material.COBBLESTONE;
 
     private final double underpinDamage;
-    private final double contactRadius;
-    private final int contactTicks;
     private final int eruptionBlocks;
     private final double eruptionSpread;
     private final int eruptionLandingTicks;
@@ -67,8 +64,6 @@ public final class Sunderpike extends Weapon {
     public Sunderpike(WeaponsPlugin plugin) {
         super(plugin);
         this.underpinDamage = configDouble("underpin-damage", 9.0);
-        this.contactRadius = configDouble("contact-radius", 2.2);
-        this.contactTicks = configInt("contact-ticks", 12);
         this.eruptionBlocks = configInt("eruption-blocks", 8);
         this.eruptionSpread = configDouble("eruption-spread", 0.35);
         this.eruptionLandingTicks = configInt("eruption-landing-ticks", 16);
@@ -107,10 +102,6 @@ public final class Sunderpike extends Weapon {
         return configDouble("melee-damage-bonus", 3.5);
     }
 
-    @Override
-    public boolean ability1OnLunge() {
-        return true;
-    }
 
     @Override
     public int lungePowerBonus() {
@@ -141,9 +132,9 @@ public final class Sunderpike extends Weapon {
     @Override
     public List<Component> ability1Lore() {
         return List.of(
-                Component.text("Hold right-click, then release to", NamedTextColor.GRAY),
-                Component.text("lunge. The floor under whatever you", NamedTextColor.GRAY),
-                Component.text("reach tears loose and comes back", NamedTextColor.GRAY),
+                Component.text("Hold right-click and run something", NamedTextColor.GRAY),
+                Component.text("down. The floor under whatever you", NamedTextColor.GRAY),
+                Component.text("skewer tears loose and comes back", NamedTextColor.GRAY),
                 Component.text("down on it.", NamedTextColor.GRAY));
     }
 
@@ -219,25 +210,24 @@ public final class Sunderpike extends Weapon {
     }
 
     @Override
-    public void ability1(Player player) {
+    public void ability1(Player player, LivingEntity victim) {
         double damage = underpinDamage * rarity().statMultiplier();
+        Location at = victim.getLocation();
 
-        LungeStrike.onFirstContact(plugin, player, contactRadius, contactTicks, (victim, at) -> {
-            victim.damage(damage, player);
-            Fx.bloodSpray(at.clone().add(0, 1, 0));
-            Fx.sound(at, hitSound(), 1.0f, 0.7f);
+        victim.damage(damage, player);
+        Fx.bloodSpray(at.clone().add(0, 1, 0));
+        Fx.sound(at, hitSound(), 1.0f, 0.7f);
 
-            erupt(player, at, eruptionBlocks, 0.55);
-            // The blocks are real, so their arrival is a real event with a real delay. The landing hit is
-            // paid when they actually come down, not at cast time — a target that walked out from under the
-            // eruption has genuinely dodged something.
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    strikeArea(player, at, 2.5, eruptionLandingDamage * rarity().statMultiplier());
-                }
-            }.runTaskLater(plugin, Math.max(1, eruptionLandingTicks));
-        });
+        erupt(player, at, eruptionBlocks, 0.55);
+        // The blocks are real, so their arrival is a real event with a real delay. The landing hit is
+        // paid when they actually come down, not at cast time — a target that walked out from under the
+        // eruption has genuinely dodged something.
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                strikeArea(player, at, 2.5, eruptionLandingDamage * rarity().statMultiplier());
+            }
+        }.runTaskLater(plugin, Math.max(1, eruptionLandingTicks));
     }
 
     @Override

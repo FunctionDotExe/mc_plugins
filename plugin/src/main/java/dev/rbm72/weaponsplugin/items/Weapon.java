@@ -10,6 +10,7 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.Sound;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeModifier;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.block.BlockBreakEvent;
@@ -58,6 +59,18 @@ public abstract class Weapon {
     /** Right-click, main hand, not sneaking. */
     public abstract void ability1(Player player);
 
+    /**
+     * Ability1 for weapons whose cast already knows what it connected with.
+     * <p>
+     * Only the spear family reaches this overload: a spear's ability1 fires from a landed charge attack
+     * ({@link #ability1OnChargeAttack()}), and vanilla hands the struck entity over as part of that hit, so
+     * there is nothing to go looking for. Everything else keeps the plain {@code ability1(Player)} contract
+     * and this default forwards to it.
+     */
+    public void ability1(Player player, LivingEntity contact) {
+        ability1(player);
+    }
+
     public abstract double ability1CooldownSeconds();
 
     public abstract List<Component> ability1Lore();
@@ -80,31 +93,51 @@ public abstract class Weapon {
     }
 
     /**
-     * True when ability1 fires from the vanilla spear lunge instead of from a bare right-click.
+     * True when ability1 fires from the vanilla spear charge attack instead of from a bare right-click.
      * <p>
-     * Spears are the one material in the game whose right-click is already a mechanic: holding it charges,
-     * releasing it lunges the player forward. §0.1 says name the real Minecraft object rather than simulate
-     * it, and the real object here is the lunge itself — so a spear weapon leaves the charge alone and hangs
-     * its ability on the release, via {@link dev.rbm72.weaponsplugin.listeners.WeaponLungeListener}. The
-     * interact listener sees this flag and stops cancelling the main-hand right-click, which is what lets
-     * the charge happen at all.
+     * Spears are the one material in the game whose right-click is already a mechanic. Holding it runs
+     * {@code Item.use} into the item's {@code KineticWeapon} component: the spear drops into an attack
+     * position and hits whatever the player's own momentum carries it through, damage scaling off velocity
+     * rather than off a swing timer. §0.1 says name the real Minecraft object rather than simulate it, and
+     * the real object here is that charge attack — so a spear weapon leaves it alone and hangs its ability
+     * on the connect, via {@link dev.rbm72.weaponsplugin.listeners.WeaponChargeListener}. The interact
+     * listener sees this flag and stops cancelling the main-hand right-click, which is what lets the charge
+     * start at all: cancelling {@link org.bukkit.event.player.PlayerInteractEvent} cancels {@code Item.use},
+     * and {@code Item.use} <em>is</em> the charge attack.
      * <p>
      * The other three slots are unaffected: sneak, off-hand and sneak-off-hand still route through
      * {@code WeaponInteractListener} exactly as they do for a sword.
      */
-    public boolean ability1OnLunge() {
+    public boolean ability1OnChargeAttack() {
         return false;
     }
 
     /**
-     * Extra vanilla lunge power this weapon carries, added to whatever {@link org.bukkit.enchantments.Enchantment#LUNGE}
-     * would give it.
+     * Extra {@link org.bukkit.enchantments.Enchantment#LUNGE} power this weapon carries on top of the level
+     * {@link #buildItem()} bakes into the item.
      * <p>
-     * Applied on every lunge, on cooldown or not: it is the weapon's <em>stat</em>, not its ability. A
-     * player who just spent ability1 should still lunge like they are holding a great spear.
+     * Lunge is the spear's <em>other</em> mechanic and a separate one from the charge attack: it fires on
+     * {@code post_piercing_attack} — the left-click jab — and shoves the wielder forward through the target.
+     * A spear with no Lunge enchantment simply never does it, which is why {@code buildItem} stamps
+     * {@link org.bukkit.enchantments.Enchantment#LUNGE} onto every {@link #ability1OnChargeAttack()} weapon;
+     * this bonus is then added on top in {@link dev.rbm72.weaponsplugin.listeners.WeaponLungeListener}.
+     * <p>
+     * Applied on every jab, on cooldown or not: it is the weapon's <em>stat</em>, not its ability. Note
+     * vanilla's own conditions still gate it — no vehicle, not gliding, not in water, and 7+ hunger.
      */
     public int lungePowerBonus() {
         return 0;
+    }
+
+    /**
+     * Level of {@link org.bukkit.enchantments.Enchantment#LUNGE} baked into a spear weapon's item.
+     * <p>
+     * Level I is deliberate as the floor rather than 0: at 0 the enchantment is absent and the jab lunge
+     * does not exist at all, so {@link #lungePowerBonus()} would have no event to add itself to and
+     * {@code WeaponLungeListener} would never fire.
+     */
+    public int lungeEnchantLevel() {
+        return 1;
     }
 
     /** Right-click, main hand, sneaking. No-op unless overridden. */
@@ -417,6 +450,13 @@ public abstract class Weapon {
         meta.setUnbreakable(true);
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_UNBREAKABLE, ItemFlag.HIDE_ENCHANTS);
         meta.setEnchantmentGlintOverride(rarity().glint());
+
+        // A spear's jab lunge is enchantment-gated in vanilla: with no LUNGE on the item the effect does not
+        // exist, EntityLungeEvent never fires, and lungePowerBonus() has nothing to raise. HIDE_ENCHANTS is
+        // already set above, so this never shows up in the tooltip next to the weapon's own ability text.
+        if (ability1OnChargeAttack() && lungeEnchantLevel() > 0) {
+            meta.addEnchant(Enchantment.LUNGE, lungeEnchantLevel(), true);
+        }
 
         if (TEXTURED_IDS.contains(id())) {
             meta.setItemModel(new NamespacedKey("weaponsplugin", id()));

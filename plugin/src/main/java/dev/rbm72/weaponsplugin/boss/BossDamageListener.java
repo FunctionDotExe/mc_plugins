@@ -128,6 +128,40 @@ public final class BossDamageListener implements Listener {
         }
     }
 
+    /**
+     * A boss hit that costs the player no health does not get to roll their camera either.
+     * <p>
+     * {@link #onVanillaBossAttack} only catches the swing that arrives at zero <em>base</em> damage. A
+     * scripted attack arrives with a real number that every mitigation in the game then eats — heavy
+     * armor plus Resistance, or an operator-grade Resistance the arena handed out — and lands as a
+     * {@code 0.00 HP} event that still tilts the screen, still shoves, and still burns the i-frames the
+     * next real hit was supposed to spend. On a phase pulsing every 5 ticks that reads as a permanent
+     * stutter, which is the "it keeps tilting me and halting my momentum" report. Nothing of value is
+     * lost by dropping it: there was no health change to feed back.
+     * <p>
+     * A blocking player is left alone — a shield block is feedback the player asked for by raising the
+     * shield, and vanilla owns the durability and the block sound that go with it.
+     * <p>
+     * HIGHEST, not MONITOR: every reduction is already in {@code getFinalDamage()} by now, and
+     * cancelling is still legal here.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onHarmlessBossHit(EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof Player player)) {
+            return;
+        }
+        if (event.getFinalDamage() > 0.0 || player.isBlocking()) {
+            return;
+        }
+        Entity damager = event.getDamager();
+        if (damager instanceof Projectile projectile && projectile.getShooter() instanceof Entity shooter) {
+            damager = shooter;
+        }
+        if (bossManager.instanceFor(damager.getUniqueId()).isPresent()) {
+            event.setCancelled(true);
+        }
+    }
+
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBossDealDamage(EntityDamageByEntityEvent event) {
         if (!(event.getEntity() instanceof Player victim)) {

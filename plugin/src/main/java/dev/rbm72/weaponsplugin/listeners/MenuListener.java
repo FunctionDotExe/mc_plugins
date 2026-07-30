@@ -79,7 +79,7 @@ public final class MenuListener implements Listener {
             handleConsumableCatalog(player, event.getCurrentItem());
         } else if (event.getInventory().getHolder() instanceof OpItemMenuHolder) {
             event.setCancelled(true);
-            handleOpItemCatalog(player, event.getRawSlot(), event.getCurrentItem());
+            handleOpItemCatalog(player, event);
         }
     }
 
@@ -163,8 +163,20 @@ public final class MenuListener implements Listener {
      * The operator shelf. Gated on both the permission and the slot being a catalog slot — the menu's own
      * "nothing here" panel is an item too, and clicking it must not be a way to identify an op item.
      */
-    private void handleOpItemCatalog(Player player, int rawSlot, ItemStack clicked) {
-        if (!player.hasPermission("weaponsplugin.op") || !OpItemMenu.isCatalogSlot(rawSlot)) {
+    private void handleOpItemCatalog(Player player, InventoryClickEvent event) {
+        if (!player.hasPermission("weaponsplugin.op")) {
+            return;
+        }
+        OpItemMenuHolder holder = (OpItemMenuHolder) event.getView().getTopInventory().getHolder();
+        ItemStack clicked = event.getCurrentItem();
+
+        if (OpItemMenu.isPageButton(plugin, clicked)) {
+            holder.setPage(holder.page() + OpItemMenu.readPageDelta(plugin, clicked));
+            OpItemMenu.render(plugin, player, holder);
+            player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.5f, 1.2f);
+            return;
+        }
+        if (!OpItemMenu.isCatalogSlot(event.getRawSlot())) {
             return;
         }
         plugin.opItemRegistry().identify(clicked).ifPresent(opItem -> {

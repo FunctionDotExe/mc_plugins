@@ -5,8 +5,8 @@ import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
+import dev.rbm72.weaponsplugin.items.SpearWeapon;
 import dev.rbm72.weaponsplugin.items.Weapon;
-import dev.rbm72.weaponsplugin.items.kit.LungeStrike;
 import dev.rbm72.weaponsplugin.items.kit.Props;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -16,6 +16,7 @@ import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.entity.EnderCrystal;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -44,13 +45,11 @@ import java.util.Map;
  * at that distance is not a risk, it is a suicide. Everything else standing there — allies included — takes it
  * in full.
  */
-public final class Crystalpike extends Weapon {
+public final class Crystalpike extends SpearWeapon {
 
     private static final Color END_VIOLET = Color.fromRGB(196, 108, 226);
 
     private final double pinDamage;
-    private final double contactRadius;
-    private final int contactTicks;
     private final int crystalLifetimeTicks;
     private final double shatterRadius;
     private final double shatterPower;
@@ -63,8 +62,6 @@ public final class Crystalpike extends Weapon {
     public Crystalpike(WeaponsPlugin plugin) {
         super(plugin);
         this.pinDamage = configDouble("pin-damage", 9.0);
-        this.contactRadius = configDouble("contact-radius", 2.2);
-        this.contactTicks = configInt("contact-ticks", 12);
         this.crystalLifetimeTicks = configInt("crystal-lifetime-ticks", 140);
         this.shatterRadius = configDouble("shatter-radius", 16.0);
         this.shatterPower = configDouble("shatter-power", 2.6);
@@ -101,11 +98,6 @@ public final class Crystalpike extends Weapon {
     }
 
     @Override
-    public boolean ability1OnLunge() {
-        return true;
-    }
-
-    @Override
     public int lungePowerBonus() {
         return configInt("lunge-power-bonus", 2);
     }
@@ -128,9 +120,9 @@ public final class Crystalpike extends Weapon {
     @Override
     public List<Component> ability1Lore() {
         return List.of(
-                Component.text("Hold right-click, then release to", NamedTextColor.GRAY),
-                Component.text("lunge. A real end crystal is nailed", NamedTextColor.GRAY),
-                Component.text("down beside whatever you reach —", NamedTextColor.GRAY),
+                Component.text("Hold right-click and run something", NamedTextColor.GRAY),
+                Component.text("down. A real end crystal is nailed", NamedTextColor.GRAY),
+                Component.text("in beside whatever you skewer —", NamedTextColor.GRAY),
                 Component.text("anything can shoot it, including them.", NamedTextColor.GRAY));
     }
 
@@ -199,15 +191,14 @@ public final class Crystalpike extends Weapon {
     }
 
     @Override
-    public void ability1(Player player) {
+    public void ability1(Player player, LivingEntity victim) {
         double damage = pinDamage * rarity().statMultiplier();
+        Location at = victim.getLocation();
 
-        LungeStrike.onFirstContact(plugin, player, contactRadius, contactTicks, (victim, at) -> {
-            victim.damage(damage, player);
-            Fx.bloodSpray(at.clone().add(0, 1, 0));
-            Fx.sound(at, hitSound(), 1.0f, 0.9f);
-            pin(at);
-        });
+        victim.damage(damage, player);
+        Fx.bloodSpray(at.clone().add(0, 1, 0));
+        Fx.sound(at, hitSound(), 1.0f, 0.9f);
+        pin(at);
     }
 
     @Override

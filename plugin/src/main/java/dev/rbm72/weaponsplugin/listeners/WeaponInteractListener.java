@@ -68,10 +68,11 @@ public final class WeaponInteractListener implements Listener {
 
         boolean sneaking = player.isSneaking();
 
-        // A spear's main-hand right-click belongs to the game: holding it charges the lunge, releasing it
-        // performs one, and ability1 fires from that release in WeaponLungeListener. Cancelling here would
-        // deny the item use and the weapon would never charge at all — the ability would be unreachable.
-        if (!offHand && !sneaking && weapon.ability1OnLunge()) {
+        // A spear's main-hand right-click belongs to the game: holding it runs the charge attack, and
+        // ability1 fires from what that attack connects with, in WeaponChargeListener. Cancelling here
+        // would deny Item.use — which *is* the charge attack — so the weapon would never charge at all and
+        // the ability would be unreachable.
+        if (!offHand && !sneaking && weapon.ability1OnChargeAttack()) {
             return;
         }
 

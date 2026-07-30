@@ -4,8 +4,7 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
-import dev.rbm72.weaponsplugin.items.Weapon;
-import dev.rbm72.weaponsplugin.items.kit.LungeStrike;
+import dev.rbm72.weaponsplugin.items.SpearWeapon;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Color;
@@ -24,7 +23,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * The roped pike: what its lunge connects with comes away on a real vanilla leash, and a second pull hauls
+ * The roped pike: what its charge attack connects with comes away on a real vanilla leash, and a second pull hauls
  * everything tethered to the wielder into melee.
  * <p>
  * §0.1, applied to crowd control. Every other "drag the target" ability in the roster is a
@@ -37,13 +36,11 @@ import java.util.Set;
  * Two honest limits, both vanilla's rather than ours: a leash has no effect on players, and a boss that
  * refuses to be leashed just gets yanked instead — see {@link #ability1}.
  */
-public final class Tetherpike extends Weapon {
+public final class Tetherpike extends SpearWeapon {
 
     private static final Color HEMP = Color.fromRGB(196, 168, 104);
 
     private final double snareDamage;
-    private final double contactRadius;
-    private final int contactTicks;
     private final int tetherTicks;
     private final double snapDistance;
     private final double reelRadius;
@@ -53,8 +50,6 @@ public final class Tetherpike extends Weapon {
     public Tetherpike(WeaponsPlugin plugin) {
         super(plugin);
         this.snareDamage = configDouble("snare-damage", 6.5);
-        this.contactRadius = configDouble("contact-radius", 2.2);
-        this.contactTicks = configInt("contact-ticks", 12);
         this.tetherTicks = configInt("tether-ticks", 160);
         this.snapDistance = configDouble("snap-distance", 8.0);
         this.reelRadius = configDouble("reel-radius", 12.0);
@@ -87,10 +82,6 @@ public final class Tetherpike extends Weapon {
         return configDouble("melee-damage-bonus", 2.0);
     }
 
-    @Override
-    public boolean ability1OnLunge() {
-        return true;
-    }
 
     @Override
     public int lungePowerBonus() {
@@ -115,8 +106,8 @@ public final class Tetherpike extends Weapon {
     @Override
     public List<Component> ability1Lore() {
         return List.of(
-                Component.text("Hold right-click, then release to", NamedTextColor.GRAY),
-                Component.text("lunge. What you reach is roped to", NamedTextColor.GRAY),
+                Component.text("Hold right-click and run something", NamedTextColor.GRAY),
+                Component.text("down. What you skewer is roped to", NamedTextColor.GRAY),
                 Component.text("you on a real leash and dragged", NamedTextColor.GRAY),
                 Component.text("wherever you walk.", NamedTextColor.GRAY));
     }
@@ -166,28 +157,27 @@ public final class Tetherpike extends Weapon {
     }
 
     @Override
-    public void ability1(Player player) {
+    public void ability1(Player player, LivingEntity victim) {
         double damage = snareDamage * rarity().statMultiplier();
+        Location at = victim.getLocation();
 
-        LungeStrike.onFirstContact(plugin, player, contactRadius, contactTicks, (victim, at) -> {
-            victim.damage(damage, player);
-            Fx.bloodSpray(at.clone().add(0, 1, 0));
-            Fx.coloredBurst(at.clone().add(0, 1, 0), HEMP, 1.0f, 12, 0.35);
+        victim.damage(damage, player);
+        Fx.bloodSpray(at.clone().add(0, 1, 0));
+        Fx.coloredBurst(at.clone().add(0, 1, 0), HEMP, 1.0f, 12, 0.35);
 
-            if (victim.setLeashHolder(player)) {
-                Fx.sound(at, Sound.ITEM_LEAD_TIED, 1.0f, 1.0f);
-                holdTether(player, victim);
-                return;
-            }
-            // Vanilla refuses the leash on players and on anything not built to be led, which includes
-            // every boss. Rather than have the signature ability do nothing against the fights it exists
-            // for, the rope becomes a single hard pull — one shove, not a hold.
-            Vector pull = player.getLocation().toVector().subtract(at.toVector());
-            if (pull.lengthSquared() > 1.0e-4) {
-                victim.setVelocity(pull.normalize().multiply(reelSpeed * 0.6).setY(0.25));
-            }
-            Fx.sound(at, Sound.ITEM_LEAD_UNTIED, 1.0f, 0.9f);
-        });
+        if (victim.setLeashHolder(player)) {
+            Fx.sound(at, Sound.ITEM_LEAD_TIED, 1.0f, 1.0f);
+            holdTether(player, victim);
+            return;
+        }
+        // Vanilla refuses the leash on players and on anything not built to be led, which includes
+        // every boss. Rather than have the signature ability do nothing against the fights it exists
+        // for, the rope becomes a single hard pull — one shove, not a hold.
+        Vector pull = player.getLocation().toVector().subtract(at.toVector());
+        if (pull.lengthSquared() > 1.0e-4) {
+            victim.setVelocity(pull.normalize().multiply(reelSpeed * 0.6).setY(0.25));
+        }
+        Fx.sound(at, Sound.ITEM_LEAD_UNTIED, 1.0f, 0.9f);
     }
 
     /**

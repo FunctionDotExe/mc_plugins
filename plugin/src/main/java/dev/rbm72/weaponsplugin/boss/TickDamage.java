@@ -155,16 +155,23 @@ public final class TickDamage {
         if (mode == GameMode.CREATIVE || mode == GameMode.SPECTATOR || player.isInvulnerable()) {
             return false;
         }
-        // Absorption is already netted out of a resolved amount but is not actually spent until the
-        // event resolves, so intercepting here would leave a golden apple soaking environmental ticks
-        // forever. A shielded player keeps the vanilla tick — the window is seconds long.
-        if (player.getAbsorptionAmount() > 0) {
-            return false;
-        }
         double health = player.getHealth();
         if (amount >= health) {
             // Lethal: vanilla owns dying, and it also owns the death message this cause carries.
             return false;
+        }
+        // Absorption is already netted out of a resolved amount, but it is not actually spent until the
+        // event resolves — and the caller is about to cancel that event, so nothing else will spend it.
+        // Left alone it becomes a golden apple that soaks damage forever.
+        //
+        // The bookkeeping is exact rather than a guess: vanilla soaks min(absorption, damage), so a
+        // resolved amount that is still above zero can only mean absorption was drained in full on the
+        // way to that number. Zeroing it is what vanilla already did to reach the figure being applied.
+        // The case this cannot resolve — absorption soaking the hit entirely, leaving a resolved zero —
+        // never reaches here: with nothing to apply, callers must let vanilla have the event so the
+        // absorption is really spent.
+        if (player.getAbsorptionAmount() > 0) {
+            player.setAbsorptionAmount(0);
         }
         player.setHealth(health - amount);
         indicate(player);

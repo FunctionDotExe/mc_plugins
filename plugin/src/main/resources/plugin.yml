@@ -34,6 +34,10 @@ commands:
     description: Ends every live boss fight and restores every arena immediately, as if nobody ever pulled it
     usage: /bossclear
     permission: weaponsplugin.boss.admin
+  bosskillall:
+    description: Ends every live fight, restores every arena, and deletes every boss entity anywhere — including orphans no fight owns
+    usage: /bosskillall
+    permission: weaponsplugin.boss.admin
   bossinfo:
     description: Shows a boss's health, arena radius, phases, and loot odds
     usage: /bossinfo <id>

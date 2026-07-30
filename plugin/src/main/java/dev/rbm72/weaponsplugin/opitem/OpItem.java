@@ -16,6 +16,7 @@ import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * A right-click item that is openly, deliberately overpowered — the operator shelf, kept apart from the
@@ -140,5 +141,25 @@ public abstract class OpItem {
 
     public static NamespacedKey idKey(WeaponsPlugin plugin) {
         return new NamespacedKey(plugin, OP_ITEM_ID_KEY);
+    }
+
+    /** Amplifier rendered the way the game writes it — amplifier 1 is "II". */
+    protected static String roman(int amplifier) {
+        return switch (amplifier) {
+            case 0 -> "I";
+            case 1 -> "II";
+            case 2 -> "III";
+            case 3 -> "IV";
+            case 4 -> "V";
+            default -> String.valueOf(amplifier + 1);
+        };
+    }
+
+    /** Ticks as the tooltip says them: "6m 00s" past a minute, "45s" below it. */
+    protected static String formatDuration(int ticks) {
+        int seconds = ticks / 20;
+        return seconds >= 60
+                ? String.format(Locale.ROOT, "%dm %02ds", seconds / 60, seconds % 60)
+                : seconds + "s";
     }
 }

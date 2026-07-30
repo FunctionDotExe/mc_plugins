@@ -96,6 +96,9 @@ public final class BossManager {
             entity.customName(boss.displayName());
             entity.setCustomNameVisible(true);
             entity.setPersistent(true);
+            // Tagged before anything else can throw: an entity that fails mid-setup is exactly the one
+            // that ends up orphaned, and the tag is what lets /bosskillall find it later.
+            BossEntities.markBoss(entity);
             if (entity instanceof Mob mob) {
                 mob.setRemoveWhenFarAway(false);
             }
@@ -306,6 +309,29 @@ public final class BossManager {
                 }
             }
         }, TICK_INTERVAL, TICK_INTERVAL);
+    }
+
+    /** What one {@code /bosskillall} actually did, so the command can report both halves separately. */
+    public record KillAllResult(int fightsCleared, int entitiesRemoved) {
+    }
+
+    /**
+     * {@code /bosskillall}: everything {@link #clearAll()} does, plus a sweep for engine entities no
+     * live fight owns any more.
+     * <p>
+     * The two halves answer different failures and neither covers the other. {@code clearAll} works off
+     * the live registry, so it is exact and it restores arenas — but an orphan is by definition not in
+     * that registry, and no amount of clearing will touch it. The sweep works off the world, so it
+     * finds orphans — but it has no ledger for them and cannot put their terrain back. Run together
+     * they are the operator escape hatch: no boss mob of ours survives, and every arena a live fight
+     * was still holding goes back to how it started.
+     */
+    public KillAllResult killAll() {
+        int cleared = clearAll();
+        int removed = BossEntities.sweep(this);
+        plugin.getLogger().info(() -> "/bosskillall: cleared " + cleared + " live fight(s) and removed "
+                + removed + " boss engine entity/entities.");
+        return new KillAllResult(cleared, removed);
     }
 
     public void shutdownAll() {

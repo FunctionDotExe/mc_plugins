@@ -4,9 +4,8 @@ import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.ability.CooldownManager;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
-import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.items.SpearWeapon;
 import dev.rbm72.weaponsplugin.items.kit.Counterplay;
-import dev.rbm72.weaponsplugin.items.kit.LungeStrike;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Color;
@@ -24,7 +23,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * The pinning pike: a lunge that nails what it hits into a cage of real cobweb and real pointed dripstone,
+ * The pinning pike: a charge attack that nails what it hits into a cage of real cobweb and real pointed dripstone,
  * and a braced stance that grows a real spike thicket in front of the wielder.
  * <p>
  * Every effect here is a block, not a status. §0.1's whole argument is in the comparison: "slow the target"
@@ -36,7 +35,7 @@ import java.util.Set;
  * Terrain goes through {@link dev.rbm72.weaponsplugin.items.kit.TempTerrain}, so the cage reverts to the
  * floor it replaced a few seconds later and no ability here can be farmed for cobweb or dripstone.
  */
-public final class Harrowpike extends Weapon {
+public final class Harrowpike extends SpearWeapon {
 
     private static final Color COLD_IRON = Color.fromRGB(178, 188, 198);
 
@@ -47,8 +46,6 @@ public final class Harrowpike extends Weapon {
     private static final int[][] CAGE_CORNERS = {{1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
 
     private final double nailDamage;
-    private final double contactRadius;
-    private final int contactTicks;
     private final int webLifetimeTicks;
     private final int spikeLifetimeTicks;
     private final double braceDamage;
@@ -59,8 +56,6 @@ public final class Harrowpike extends Weapon {
     public Harrowpike(WeaponsPlugin plugin) {
         super(plugin);
         this.nailDamage = configDouble("nail-damage", 6.0);
-        this.contactRadius = configDouble("contact-radius", 2.2);
-        this.contactTicks = configInt("contact-ticks", 12);
         this.webLifetimeTicks = configInt("web-lifetime-ticks", 90);
         this.spikeLifetimeTicks = configInt("spike-lifetime-ticks", 110);
         this.braceDamage = configDouble("brace-damage", 4.5);
@@ -94,10 +89,6 @@ public final class Harrowpike extends Weapon {
         return configDouble("melee-damage-bonus", 2.5);
     }
 
-    @Override
-    public boolean ability1OnLunge() {
-        return true;
-    }
 
     @Override
     public int lungePowerBonus() {
@@ -122,8 +113,8 @@ public final class Harrowpike extends Weapon {
     @Override
     public List<Component> ability1Lore() {
         return List.of(
-                Component.text("Hold right-click, then release to", NamedTextColor.GRAY),
-                Component.text("lunge. The first thing you reach is", NamedTextColor.GRAY),
+                Component.text("Hold right-click and run something", NamedTextColor.GRAY),
+                Component.text("down. What you skewer is", NamedTextColor.GRAY),
                 Component.text("caged in real cobweb, with dripstone", NamedTextColor.GRAY),
                 Component.text("spikes set at the corners.", NamedTextColor.GRAY));
     }
@@ -174,16 +165,15 @@ public final class Harrowpike extends Weapon {
     }
 
     @Override
-    public void ability1(Player player) {
+    public void ability1(Player player, LivingEntity victim) {
         double damage = nailDamage * rarity().statMultiplier();
+        Location at = victim.getLocation();
 
-        LungeStrike.onFirstContact(plugin, player, contactRadius, contactTicks, (victim, at) -> {
-            victim.damage(damage, player);
-            Fx.sound(at, hitSound(), 1.0f, 0.9f);
-            Fx.bloodSpray(at.clone().add(0, 1, 0));
-            Fx.coloredBurst(at.clone().add(0, 1, 0), COLD_IRON, 1.1f, 14, 0.4);
-            cage(player, at);
-        });
+        victim.damage(damage, player);
+        Fx.sound(at, hitSound(), 1.0f, 0.9f);
+        Fx.bloodSpray(at.clone().add(0, 1, 0));
+        Fx.coloredBurst(at.clone().add(0, 1, 0), COLD_IRON, 1.1f, 14, 0.4);
+        cage(player, at);
     }
 
     /**

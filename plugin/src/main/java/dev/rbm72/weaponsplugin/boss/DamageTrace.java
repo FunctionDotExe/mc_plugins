@@ -2,6 +2,7 @@ package dev.rbm72.weaponsplugin.boss;
 
 import dev.rbm72.weaponsplugin.WeaponsPlugin;
 import dev.rbm72.weaponsplugin.util.Grounded;
+import io.papermc.paper.event.entity.EntityKnockbackEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
@@ -12,8 +13,10 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.player.PlayerVelocityEvent;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
 
 import java.util.HashMap;
 import java.util.Iterator;
@@ -123,6 +126,81 @@ public final class DamageTrace implements Listener {
         }
     }
 
+    /**
+     * The "what is moving me" probe, and the counterpart to the damage lines above.
+     * <p>
+     * "It halts my momentum / I'm stuck for a second" is not a damage question at all, and no amount of
+     * health logging answers it: a shove is a velocity packet, and it arrives by one of three routes that
+     * a player cannot tell apart by feel — vanilla knockback from a hit, an attack writing
+     * {@code setVelocity} directly, or an explosion. This prints whichever one landed and, crucially,
+     * whether something cancelled it, so "my anti-knockback accessory isn't working" becomes a fact
+     * rather than an impression. MONITOR with {@code ignoreCancelled = false} for exactly that reason.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
+    public void onVelocity(PlayerVelocityEvent event) {
+        State state = traced.get(event.getPlayer().getUniqueId());
+        if (state == null) {
+            return;
+        }
+        Vector velocity = event.getVelocity();
+        String line = "t" + state.tick + "  SHOVE  velocity=" + format(velocity)
+                + "  mag=" + String.format("%.2f", velocity.length())
+                + "  from=" + blame()
+                + (event.isCancelled() ? "  cancelled" : "  APPLIED");
+        emit(event.getPlayer(), line, event.isCancelled() ? NamedTextColor.GRAY : NamedTextColor.GOLD);
+    }
+
+    /**
+     * Which of this plugin's classes caused the velocity change, or {@code vanilla} if none did.
+     * <p>
+     * Knowing a shove landed is only half an answer — "what is moving me" needs a name, and a shove can
+     * come from a boss attack, a phase mechanic, an equipped stone or the server itself, which feel
+     * identical in play and are indistinguishable in a log. The event fires synchronously inside whatever
+     * called {@code setVelocity}, so that caller is still on the stack: the first plugin frame below this
+     * listener is the culprit, and if there is no plugin frame at all the push came from vanilla (an
+     * explosion, a wind charge, a piston) and no amount of plugin-side work will stop it.
+     */
+    private static String blame() {
+        for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
+            String className = frame.getClassName();
+            if (!className.startsWith("dev.rbm72.weaponsplugin") || className.equals(DamageTrace.class.getName())) {
+                continue;
+            }
+            int lastDot = className.lastIndexOf('.');
+            return className.substring(lastDot + 1) + "." + frame.getMethodName() + ":" + frame.getLineNumber();
+        }
+        return "vanilla";
+    }
+
+    /**
+     * Vanilla's own knockback, logged separately from the velocity packet it would produce — a cancelled
+     * knockback that is nonetheless followed by an {@code APPLIED} shove line means the push came from
+     * somewhere other than the hit, which is the distinction worth an extra line.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
+    public void onKnockback(EntityKnockbackEvent event) {
+        if (!(event.getEntity() instanceof Player player)) {
+            return;
+        }
+        State state = traced.get(player.getUniqueId());
+        if (state == null) {
+            return;
+        }
+        String line = "t" + state.tick + "  KNOCKBACK  cause=" + event.getCause()
+                + "  " + format(event.getKnockback())
+                + (event.isCancelled() ? "  cancelled" : "  APPLIED");
+        emit(player, line, event.isCancelled() ? NamedTextColor.GRAY : NamedTextColor.GOLD);
+    }
+
+    private static String format(Vector vector) {
+        return String.format("(%.2f, %.2f, %.2f)", vector.getX(), vector.getY(), vector.getZ());
+    }
+
+    private void emit(Player player, String text, NamedTextColor color) {
+        player.sendMessage(Component.text(text, color));
+        plugin.getLogger().info("[damage-trace] " + player.getName() + "  " + text);
+    }
+
     private void start() {
         if (task != null) {
             return;
@@ -201,9 +279,14 @@ public final class DamageTrace implements Listener {
         }
         line.append("  feet=").append(player.getLocation().getBlock().getType());
         line.append("  ground=").append(Grounded.onGround(player));
-        String text = line.toString();
-        player.sendMessage(Component.text(text, NamedTextColor.AQUA));
-        plugin.getLogger().info("[damage-trace] " + player.getName() + "  " + text);
+        // The two numbers behind "why did I stop moving": what the player's velocity actually is right
+        // now, and whether the knockback immunity an accessory claims to grant is really on the player.
+        line.append("  vel=").append(String.format("%.2f", player.getVelocity().length()));
+        var knockbackResistance = player.getAttribute(org.bukkit.attribute.Attribute.KNOCKBACK_RESISTANCE);
+        if (knockbackResistance != null) {
+            line.append("  kbres=").append(String.format("%.2f", knockbackResistance.getValue()));
+        }
+        emit(player, line.toString(), NamedTextColor.AQUA);
     }
 
     private void report(Player player, State state, double lost, boolean tilted) {
@@ -225,8 +308,6 @@ public final class DamageTrace implements Listener {
         } else {
             line.append("  direct health write (TickDamage)");
         }
-        String text = line.toString();
-        player.sendMessage(Component.text(text, tilted ? NamedTextColor.RED : NamedTextColor.GRAY));
-        plugin.getLogger().info("[damage-trace] " + player.getName() + "  " + text);
+        emit(player, line.toString(), tilted ? NamedTextColor.RED : NamedTextColor.GRAY);
     }
 }

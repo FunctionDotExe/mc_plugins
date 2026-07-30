@@ -40,5 +40,12 @@ public final class ArenaSafetyListener implements Listener {
             return;
         }
         event.setCancelled(true);
+        // Cancelling fall damage does NOT clear the accumulated fall distance — that is a long-standing
+        // Bukkit trap, and it is not cosmetic. The distance survives the cancel, so the very next tick the
+        // player is on the ground the server tries to hurt them for the same fall again, and again, and
+        // again: a stream of cancelled damage events, each one playing the client's landing/fall sound and
+        // burning i-frames. In play that reads as "I can't jump and I keep hearing myself hit the floor".
+        // Clearing it here is what actually finishes the cancel.
+        player.setFallDistance(0.0f);
     }
 }
