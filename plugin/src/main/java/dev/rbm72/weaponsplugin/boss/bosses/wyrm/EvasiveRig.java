@@ -22,13 +22,14 @@ import java.util.List;
  * place — the brief window after it's been cornered, while it's actually damageable). {@link
  * WyrmlingPhase} owns the transition between them; this class only knows how to move.
  * <p>
- * <b>Caveat, same one {@code dragon.AerialRig} flags honestly rather than hiding:</b> that rig's
- * {@code setAI(false)} trick is proven against a {@code Phantom}. The Voidwyrm is an {@code
- * EnderDragon}, which vanilla drives partly through its own server-side phase/flight controller rather
- * than the ordinary {@code Mob} goal system {@code setAI} gates — whether it suppresses cleanly the same
- * way has not been verified against a live server. If it doesn't, the symptom would be the dragon's own
- * flight fighting this rig's velocity rather than anything crashing; worth an early live playtest of P1
- * specifically before trusting the rest of the fight.
+ * <b>Settled, the hard way.</b> This class used to carry a caveat that the {@code setAI(false)} trick
+ * was proven against a {@code Phantom} but unverified against the {@code EnderDragon} the Voidwyrm then
+ * used, and that the symptom of it failing would be the dragon's own flight controller fighting this
+ * rig's velocity. That is exactly what happened: a dragon's flight is driven outside the goal system
+ * {@code setAI} gates, so it flew itself away from the arena and the fight presented as an audible but
+ * invisible, unhittable boss. {@code Voidwyrm#baseEntityType} is a {@code Phantom} now — the entity this
+ * rig is actually proven against — so the reasoning above holds as written. Any future boss that steers
+ * its entity by raw velocity needs an ordinary {@code Mob}; a dragon cannot be driven this way.
  */
 final class EvasiveRig {
 

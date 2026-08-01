@@ -52,6 +52,10 @@ final class Burrow {
         }
         diveOrigin = boss.getLocation();
         underground = true;
+        // BossInstance lifts any boss that sits below the arena floor back onto solid ground — the
+        // rescue that stops a ground boss getting stuck in its own crater. Being under the floor is the
+        // entire point here, so it has to be told this one is deliberate.
+        fight.instance().setFootingRescueSuspended(true);
         boss.setInvisible(true);
         // Same reasoning as EvasiveRig/AerialRig: BossInstance#tick unconditionally issues a moveTo
         // toward whatever it's targeting, which would otherwise fight the raw setVelocity calls in
@@ -133,6 +137,7 @@ final class Burrow {
         boss.setInvisible(false);
         boss.setAI(true);
         underground = false;
+        fight.instance().setFootingRescueSuspended(false);
 
         Grief.breakCrater(fight.griefContext(), surface, fight.config().dbl("burrow-crater-radius", 2.5));
         Fx.coloredBurst(surface.clone().add(0, 1, 0), WyrmFight.VOID_PURPLE, 2.6f, 70, 1.0);
@@ -153,6 +158,7 @@ final class Burrow {
         }
         LivingEntity boss = fight.instance().entity();
         underground = false;
+        fight.instance().setFootingRescueSuspended(false);
         if (boss == null || !boss.isValid()) {
             return;
         }

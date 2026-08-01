@@ -72,7 +72,10 @@ public final class WeaponInteractListener implements Listener {
         // ability1 fires from what that attack connects with, in WeaponChargeListener. Cancelling here
         // would deny Item.use — which *is* the charge attack — so the weapon would never charge at all and
         // the ability would be unreachable.
-        if (!offHand && !sneaking && weapon.ability1OnChargeAttack()) {
+        // Same reasoning for a bow: the main-hand right-click is the draw, and ability1 fires from the
+        // released shot in WeaponBowListener. Cancelling here would deny the draw and leave the weapon
+        // unable to fire an arrow at all.
+        if (!offHand && !sneaking && (weapon.ability1OnChargeAttack() || weapon.ability1OnBowShot())) {
             return;
         }
 

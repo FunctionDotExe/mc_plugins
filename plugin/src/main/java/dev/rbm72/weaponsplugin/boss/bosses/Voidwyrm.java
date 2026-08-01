@@ -105,9 +105,28 @@ public final class Voidwyrm extends Boss {
                 .decoration(TextDecoration.BOLD, true);
     }
 
+    /**
+     * A {@link EntityType#PHANTOM}, not an {@link EntityType#ENDER_DRAGON} — and the difference is the
+     * whole fight working or not working.
+     * <p>
+     * Every phase of this boss moves the entity by hand: {@code EvasiveRig} flees the group by raw
+     * {@code setVelocity}, {@code Burrow} teleports it below the floor, {@code SerpentPhase} pins it to
+     * the lead segment. All three rely on the same trick {@code dragon.AerialRig} established —
+     * {@code setAI(false)} stops the vanilla goal system (and the framework's unconditional per-tick
+     * {@code moveTo}) from fighting those writes, while general physics keeps integrating velocity.
+     * <p>
+     * That trick is only true for an ordinary {@code Mob}. An Ender Dragon is driven by its own
+     * server-side flight/phase controller, which is not part of the goal system and does not stop when
+     * {@code setAI(false)} is set: it kept flying itself back toward its own anchor, ignoring the rig
+     * entirely. What that looked like in play was the boss audibly flapping somewhere off in the world
+     * with no visible entity in the arena and nothing to hit — the fight could not be started at all.
+     * {@code EvasiveRig}'s class doc flagged this as unverified and named the exact symptom; this is
+     * that caveat coming true. A Phantom is the entity the rig is proven against, is already what
+     * {@code DragonElder} flies on, and is a better fit for a wyrm besides.
+     */
     @Override
     public EntityType baseEntityType() {
-        return EntityType.ENDER_DRAGON;
+        return EntityType.PHANTOM;
     }
 
     @Override

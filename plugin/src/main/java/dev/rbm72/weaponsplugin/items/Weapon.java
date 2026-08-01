@@ -113,6 +113,26 @@ public abstract class Weapon {
     }
 
     /**
+     * True when ability1 fires from a released bow/crossbow shot instead of from a bare right-click.
+     * <p>
+     * The same trap the spear family walked into, one material over. A bow's right-click <em>is</em> the
+     * draw, so {@link WeaponInteractListener} cancelling {@link org.bukkit.event.player.PlayerInteractEvent}
+     * to claim the button denied the draw outright: every custom bow in the roster could cast its three
+     * abilities and could not fire a single arrow, which left it useless the moment all three were on
+     * cooldown. §0.1 says the real Minecraft object comes first, and for a bow the real object is the
+     * nocked arrow.
+     * <p>
+     * So the release is the cast, exactly as the connect is for a spear — see
+     * {@link dev.rbm72.weaponsplugin.listeners.WeaponBowListener}. Drawing and loosing is a plain,
+     * always-available basic attack that no cooldown ever gates; ability1 rides along on top whenever it
+     * happens to be ready. Slots 2–4 are untouched and still answer sneak, off-hand and sneak-off-hand.
+     */
+    public boolean ability1OnBowShot() {
+        Material m = material();
+        return m == Material.BOW || m == Material.CROSSBOW;
+    }
+
+    /**
      * Extra {@link org.bukkit.enchantments.Enchantment#LUNGE} power this weapon carries on top of the level
      * {@link #buildItem()} bakes into the item.
      * <p>
@@ -279,7 +299,7 @@ public abstract class Weapon {
     }
 
     public final double effectiveMeleeDamage() {
-        return baseMeleeDamage() * rarity().statMultiplier();
+        return baseMeleeDamage() * rarity().statMultiplier() * weightClass().damageScalar();
     }
 
     /**
@@ -308,13 +328,112 @@ public abstract class Weapon {
     }
 
     /**
+     * How much weapon is being swung — the one stat that decides both how fast it swings and how hard
+     * each swing lands.
+     * <p>
+     * This exists because of a silent vanilla rule with roster-wide consequences. Since the
+     * {@code attribute_modifiers} item component arrived, an item that declares <em>any</em> modifier
+     * no longer inherits its material's built-in ones: {@link #createItem()} sets an
+     * {@link Attribute#ATTACK_DAMAGE} bonus, so every weapon here quietly threw away the material's
+     * {@link Attribute#ATTACK_SPEED} entry too and fell back to the player's bare-fist 4.0/s. Nothing
+     * in the roster had a swing cooldown, so a netherite greatsword and a pair of daggers both hit as
+     * fast as the player could click, at full damage every time — which is why bosses died to
+     * undifferentiated spam-clicking regardless of what was equipped.
+     * <p>
+     * Restoring the attribute is only half of it. A single restored speed for all sixty weapons would
+     * make them identical again, so the class carries a matching damage scalar: light weapons trade
+     * per-hit damage for swings, heavy weapons the reverse, and sustained DPS lands close enough that
+     * the choice is about feel and openings rather than about a strictly better number.
+     */
+    public enum WeightClass {
+        /** Daggers, knuckles, chakrams, whips — flurry weapons. */
+        LIGHT(2.0, 0.75),
+        /** Swords, spears, tridents, scythes, staves. The roster's default. */
+        MEDIUM(1.55, 1.0),
+        /** Mauls, hammers, axes, greatswords, anvils — poise-breakers. */
+        HEAVY(0.9, 1.45);
+
+        /** Swings per second this class is allowed. The player's unmodified base is 4.0. */
+        private final double attacksPerSecond;
+        private final double damageScalar;
+
+        WeightClass(double attacksPerSecond, double damageScalar) {
+            this.attacksPerSecond = attacksPerSecond;
+            this.damageScalar = damageScalar;
+        }
+
+        public double attacksPerSecond() {
+            return attacksPerSecond;
+        }
+
+        public double damageScalar() {
+            return damageScalar;
+        }
+    }
+
+    /** Base value of {@link Attribute#ATTACK_SPEED} on a player carrying nothing. */
+    private static final double BASE_ATTACK_SPEED = 4.0;
+
+    /**
+     * Weapon-id fragments that mark a flurry weapon regardless of what material it borrows.
+     * Deliberately narrow: "fang" and "claw" were the tempting additions and both are wrong, since
+     * Dragon Fang and Starfang are greatsword-shaped and Ironclaw Knuckles is already caught by
+     * "knuckle". A fragment that misfiles one weapon is worse than a fragment that catches none.
+     */
+    private static final List<String> LIGHT_ID_HINTS = List.of(
+            "dagger", "knuckle", "chakram", "whip", "lash", "hook");
+
+    /** Weapon-id fragments that mark a poise-breaker regardless of what material it borrows. */
+    private static final List<String> HEAVY_ID_HINTS = List.of(
+            "maul", "hammer", "greatsword", "breaker", "anvil", "warpick", "judgment", "cleaver");
+
+    /**
+     * This weapon's weight class. Derived from its id first and its material second, so the roster
+     * classifies itself: a "meteor_maul" and an "earthbreaker_axe" both land in {@link WeightClass#HEAVY}
+     * without either file having to say so, and the handful of weapons that borrow a material for its
+     * look rather than its heft (a mace-shaped staff, a sword-shaped dagger) are caught by the id pass
+     * that runs first. Override on any weapon the derivation gets wrong.
+     */
+    public WeightClass weightClass() {
+        String id = id();
+        for (String hint : LIGHT_ID_HINTS) {
+            if (id.contains(hint)) {
+                return WeightClass.LIGHT;
+            }
+        }
+        for (String hint : HEAVY_ID_HINTS) {
+            if (id.contains(hint)) {
+                return WeightClass.HEAVY;
+            }
+        }
+        Material m = material();
+        String name = m.name();
+        if (m == Material.MACE || m == Material.ANVIL || m == Material.TNT
+                || m == Material.PACKED_ICE || m == Material.BEEHIVE || name.endsWith("_AXE")) {
+            return WeightClass.HEAVY;
+        }
+        if (m == Material.STICK || m == Material.BAMBOO || m == Material.SHEARS
+                || m == Material.FISHING_ROD || m == Material.IRON_CHAIN || m == Material.SPYGLASS
+                || m == Material.BLAZE_ROD || m == Material.TOTEM_OF_UNDYING
+                || m == Material.WITHER_SKELETON_SKULL) {
+            return WeightClass.LIGHT;
+        }
+        return WeightClass.MEDIUM;
+    }
+
+    /** Swings per second, before the config override every tunable number in this plugin gets. */
+    public final double attackSpeed() {
+        return configDouble("attack-speed", weightClass().attacksPerSecond());
+    }
+
+    /**
      * Heavy weapons (mauls, hammers, axes) carry poise-break: enough weight behind a hit to
-     * interrupt a boss's cast or knock down a blocking player's guard. Derived from material by
-     * default so the existing weapon roster needs no per-weapon changes; override to opt in/out.
+     * interrupt a boss's cast or knock down a blocking player's guard. Reads straight off
+     * {@link #weightClass()} so "swings slowly, hits hard, staggers" is one decision rather than
+     * three that can drift apart; override to opt in/out.
      */
     public boolean isHeavyWeapon() {
-        Material m = material();
-        return m == Material.MACE || m.name().endsWith("_AXE");
+        return weightClass() == WeightClass.HEAVY;
     }
 
     /** Ticks a heavy weapon's hit staggers a boss (freezes its attack/movement) or disables a blocking player's shield. */
@@ -346,6 +465,13 @@ public abstract class Weapon {
      * Weapon ids with a custom item model + texture in the {@code resourcepack/} directory.
      * Only these get {@link ItemMeta#setItemModel}; every other weapon keeps its plain material
      * look, since pointing at a model that doesn't exist in the pack renders as a missing texture.
+     * <p>
+     * {@code maelstrom_trident} is deliberately absent. A trident is one of the handful of items
+     * vanilla renders with its own in-hand and throwing poses rather than a flat sprite, and an
+     * {@code item_model} override replaces that whole definition — the mcd pack pointed it at a
+     * glaive, so the Leviathan's trident was a trident in name and a polearm on screen. Leaving it
+     * off keeps {@link Material#TRIDENT}'s real model, which is what the weapon is supposed to look
+     * like; the rarity glint and lore still apply as normal.
      */
     private static final Set<String> TEXTURED_IDS = Set.of(
             "anglers_hook", "anvilfall", "apotheosis", "arcane_staff", "arcpike",
@@ -355,7 +481,7 @@ public abstract class Weapon {
             "earthbreaker_axe", "excavators_pick", "exsanguinator", "flame_katana",
             "frost_scythe", "glacial_scepter", "harrowpike", "hive_breaker", "hunters_crossbow",
             "ironclaw_knuckles", "kings_judgment", "legionnaires_pike", "lunar_blade",
-            "maelstrom_trident", "meteor_maul", "mournsong", "necromancer_staff",
+            "meteor_maul", "mournsong", "necromancer_staff",
             "nullblade", "plague_scythe", "rotscourge", "sakura_blade",
             "serpentfang_crossbow", "shadow_daggers", "solar_greatsword", "soulcrown",
             "soulharvester", "spikequake_warpick", "spinelash", "starbreaker",
@@ -375,6 +501,15 @@ public abstract class Weapon {
                 .decoration(TextDecoration.ITALIC, false)
                 .append(Component.text(String.format(Locale.ROOT, "+%.1f", effectiveMeleeDamage()), NamedTextColor.RED)
                         .decoration(TextDecoration.BOLD, true)));
+        // The speed line is only meaningful next to the weight it comes from — "1.55/s" alone reads as
+        // noise, "MEDIUM · 1.55/s" reads as the trade the weapon is making.
+        body.add(Component.text("❁ Speed   ", NamedTextColor.GRAY)
+                .decoration(TextDecoration.ITALIC, false)
+                .append(Component.text(weightClass().name(), NamedTextColor.GOLD)
+                        .decoration(TextDecoration.BOLD, true)
+                        .decoration(TextDecoration.ITALIC, false))
+                .append(Component.text(String.format(Locale.ROOT, " · %.2f/s", attackSpeed()), NamedTextColor.YELLOW)
+                        .decoration(TextDecoration.ITALIC, false)));
 
         double[] cooldowns = {ability1CooldownSeconds(), ability2CooldownSeconds(), ability3CooldownSeconds(), ultimateCooldownSeconds()};
         List<List<Component>> blocks = List.of(ability1Lore(), ability2Lore(), ability3Lore(), ultimateLore());
@@ -458,6 +593,14 @@ public abstract class Weapon {
             meta.addEnchant(Enchantment.LUNGE, lungeEnchantLevel(), true);
         }
 
+        // A legendary drop that stops working when the quiver runs dry is a worse weapon than a plain
+        // bow, so the ammo problem is solved on the item rather than in the player's inventory. Infinity
+        // is bow-only in vanilla; a crossbow keeps consuming arrows and is topped up by
+        // WeaponBowListener instead.
+        if (material() == Material.BOW) {
+            meta.addEnchant(Enchantment.INFINITY, 1, true);
+        }
+
         if (TEXTURED_IDS.contains(id())) {
             meta.setItemModel(new NamespacedKey("weaponsplugin", id()));
         }
@@ -465,6 +608,16 @@ public abstract class Weapon {
         NamespacedKey damageKey = new NamespacedKey(plugin, id() + "_damage");
         meta.addAttributeModifier(Attribute.ATTACK_DAMAGE, new AttributeModifier(
                 damageKey, effectiveMeleeDamage(), AttributeModifier.Operation.ADD_NUMBER, EquipmentSlotGroup.MAINHAND));
+
+        // Declaring the damage modifier above is what makes this line mandatory rather than optional:
+        // an item carrying explicit attribute modifiers inherits none of its material's defaults, so
+        // without an ATTACK_SPEED entry every weapon in the roster swings at the player's bare-fist
+        // 4.0/s with no swing cooldown and lands full damage on every click. The modifier is additive
+        // against that 4.0 base, hence the subtraction.
+        NamespacedKey speedKey = new NamespacedKey(plugin, id() + "_attack_speed");
+        meta.addAttributeModifier(Attribute.ATTACK_SPEED, new AttributeModifier(
+                speedKey, attackSpeed() - BASE_ATTACK_SPEED,
+                AttributeModifier.Operation.ADD_NUMBER, EquipmentSlotGroup.MAINHAND));
 
         meta.getPersistentDataContainer().set(
                 new NamespacedKey(plugin, WEAPON_ID_KEY), PersistentDataType.STRING, id());

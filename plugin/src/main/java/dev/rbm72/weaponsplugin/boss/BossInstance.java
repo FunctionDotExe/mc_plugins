@@ -147,6 +147,12 @@ public final class BossInstance {
     private boolean floorLockTimeoutLogged;
     private long lastDeflectMs;
     private int invalidTicks;
+    /** How long the boss must stay below the floor before it is lifted out — three seconds. */
+    private static final int BOSS_PITTED_TICKS_BEFORE_LIFT = 60;
+    /** Consecutive ticks the boss has spent below the arena floor — see {@link #enforceBossFooting()}. */
+    private int bossPittedTicks;
+    /** Set by a mechanic that puts the boss under the floor on purpose (the Voidwyrm's burrow). */
+    private boolean footingRescueSuspended;
 
     BossInstance(WeaponsPlugin plugin, BossManager manager, Boss boss, LivingEntity entity, Arena arena,
                  double maxHealth, Set<BossModifier> affixes) {
@@ -903,6 +909,88 @@ public final class BossInstance {
     }
 
     /**
+     * The boss's half of {@link #enforcePitFloor()} — gets it out of a hole it fell into.
+     * <p>
+     * {@link #confineToArena()} only ever fires on a boss that has left the arena <em>horizontally</em>,
+     * so a boss that dropped into a crater well inside the radius had nothing looking after it at all.
+     * Every ground boss in the roster deletes its own floor on purpose — debris impacts, craters, a
+     * pillar landing — and a walking mob that steps into a two-deep hole it just made cannot path back
+     * out of it. What that looks like in play is the boss standing in a pit for the rest of the fight,
+     * unable to reach anyone and dealing nothing, which is exactly the "it dug itself a hole and does no
+     * damage" the Solar Colossus was reported for.
+     * <p>
+     * Deliberately slow to fire: a boss legitimately passes below the threshold for a moment while
+     * knocked back or mid-leap, and yanking it every time would read far worse than the bug. It has to
+     * stay down there for {@link #BOSS_PITTED_TICKS_BEFORE_LIFT} consecutive ticks first.
+     * <p>
+     * Suspended by any mechanic that puts the boss under the floor on purpose — see
+     * {@link #setFootingRescueSuspended(boolean)}.
+     */
+    private void enforceBossFooting() {
+        World world = arena.world();
+        if (footingRescueSuspended || world == null || !entity.isValid()) {
+            bossPittedTicks = 0;
+            return;
+        }
+        double floorY = arena.center().getY() - boss.pitDepth();
+        if (entity.getLocation().getY() > floorY) {
+            bossPittedTicks = 0;
+            return;
+        }
+        if (++bossPittedTicks < BOSS_PITTED_TICKS_BEFORE_LIFT) {
+            return;
+        }
+        bossPittedTicks = 0;
+        Location footing = surfaceNear(entity.getLocation());
+        if (footing != null) {
+            entity.teleport(footing);
+            Fx.burst(footing, org.bukkit.Particle.CLOUD, 20, 0.6);
+        }
+    }
+
+    /**
+     * Nearest column around {@code from} whose surface is back up at roughly arena-floor height,
+     * searched outward in rings. The boss's own column is useless for this — it is the bottom of the
+     * hole, so its "highest block" is the very floor we are trying to escape.
+     */
+    private Location surfaceNear(Location from) {
+        World world = arena.world();
+        if (world == null) {
+            return null;
+        }
+        double wantedY = arena.center().getY() - 1;
+        for (int ring = 2; ring <= 12; ring += 2) {
+            for (int i = 0; i < 12; i++) {
+                double angle = (Math.PI * 2 * i) / 12;
+                int x = from.getBlockX() + (int) Math.round(Math.cos(angle) * ring);
+                int z = from.getBlockZ() + (int) Math.round(Math.sin(angle) * ring);
+                int surfaceY = world.getHighestBlockYAt(x, z);
+                if (surfaceY >= wantedY) {
+                    return new Location(world, x + 0.5, surfaceY + 1, z + 0.5,
+                            from.getYaw(), from.getPitch());
+                }
+            }
+        }
+        // Nothing standable nearby — the arena centre is the last resort, and is where the fight
+        // belongs anyway.
+        Location centre = arena.center().clone();
+        centre.setY(world.getHighestBlockYAt(centre.getBlockX(), centre.getBlockZ()) + 1);
+        return centre;
+    }
+
+    /**
+     * Turns {@link #enforceBossFooting()} off while a mechanic is holding the boss under the floor
+     * deliberately — the Voidwyrm's burrow being the one case in the roster. Without this the rescue
+     * would fight the burrow every second it was underground.
+     */
+    public void setFootingRescueSuspended(boolean suspended) {
+        this.footingRescueSuspended = suspended;
+        if (suspended) {
+            bossPittedTicks = 0;
+        }
+    }
+
+    /**
      * The roster-wide "pits hurt, they don't remove you" rule, applied to anyone who has ended up far
      * enough below the arena floor to count as having fallen into one.
      * <p>
@@ -1082,6 +1170,7 @@ public final class BossInstance {
         }
 
         arena.updateLiveCenter(entity.getLocation());
+        enforceBossFooting();
         enforcePitFloor();
 
         double fraction = Math.max(0.0, Math.min(1.0, entity.getHealth() / maxHealth));

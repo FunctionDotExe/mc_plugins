@@ -238,28 +238,35 @@ public final class Anvilfall extends Weapon {
 
         new BukkitRunnable() {
             int ticks = 0;
+            // Where the anvil was on the previous tick. A landing FallingBlock is removed by the
+            // server before this task next runs, so by the time the exit branch fires the entity is
+            // already invalid and getLocation() is unusable — reading the impact point off the live
+            // entity meant the whole damage block was skipped and the drop hit nobody at all.
+            Location lastSeen = spawnAt.clone();
 
             @Override
             public void run() {
-                if (!anvil.isValid() || anvil.isOnGround() || ticks >= 40) {
-                    if (anvil.isValid()) {
-                        Location impact = anvil.getLocation();
-                        Fx.sound(impact, hitSound(), 1.1f, 0.8f);
-                        Fx.coloredBurst(impact.clone().add(0, 0.3, 0), IRON_GRAY, 2.0f, 30, radius * 0.6);
-                        Fx.blockBurst(impact, Material.ANVIL, 20, 0.6);
-                        for (Entity nearby : world.getNearbyEntities(impact, radius, radius, radius)) {
-                            if (nearby instanceof LivingEntity living) {
-                                living.damage(damage, caster);
-                                living.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, slowTicks, 3, false, true));
-                                Fx.bloodSpray(living.getLocation().add(0, 1, 0));
-                            }
+                boolean landed = !anvil.isValid() || anvil.isOnGround();
+                if (landed || ticks >= 40) {
+                    Location impact = anvil.isValid() ? anvil.getLocation() : lastSeen;
+                    Fx.sound(impact, hitSound(), 1.1f, 0.8f);
+                    Fx.coloredBurst(impact.clone().add(0, 0.3, 0), IRON_GRAY, 2.0f, 30, radius * 0.6);
+                    Fx.blockBurst(impact, Material.ANVIL, 20, 0.6);
+                    for (Entity nearby : world.getNearbyEntities(impact, radius, radius, radius)) {
+                        if (nearby instanceof LivingEntity living && !living.equals(caster)) {
+                            living.damage(damage, caster);
+                            living.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, slowTicks, 3, false, true));
+                            Fx.bloodSpray(living.getLocation().add(0, 1, 0));
                         }
+                    }
+                    if (anvil.isValid()) {
                         anvil.remove();
                     }
                     cancel();
                     return;
                 }
-                Fx.trail(anvil.getLocation(), Particle.CRIT, 2, 0.05, 0.01);
+                lastSeen = anvil.getLocation();
+                Fx.trail(lastSeen, Particle.CRIT, 2, 0.05, 0.01);
                 ticks++;
             }
         }.runTaskTimer(plugin, 1L, 1L);

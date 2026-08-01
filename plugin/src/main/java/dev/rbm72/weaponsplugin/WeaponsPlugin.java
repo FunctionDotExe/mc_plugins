@@ -495,6 +495,11 @@ public final class WeaponsPlugin extends JavaPlugin {
                         accessoryManager, opCooldownCommand, weaponSwitchLock, ultimateChargeManager), this);
         getServer().getPluginManager().registerEvents(
                 new dev.rbm72.weaponsplugin.listeners.WeaponLungeListener(weaponRegistry), this);
+        // The bow family is the same deal one material over: the draw is the mechanic, so ability1 fires
+        // from the released shot and this listener also keeps the weapon in ammo.
+        getServer().getPluginManager().registerEvents(
+                new dev.rbm72.weaponsplugin.listeners.WeaponBowListener(this, weaponRegistry, cooldownManager,
+                        accessoryManager, opCooldownCommand, weaponSwitchLock, ultimateChargeManager), this);
         getServer().getPluginManager().registerEvents(
                 new AccessoryDamageListener(weaponRegistry, accessoryManager), this);
         getServer().getPluginManager().registerEvents(

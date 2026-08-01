@@ -5,6 +5,7 @@ import dev.rbm72.weaponsplugin.ability.ChargeSpec;
 import dev.rbm72.weaponsplugin.fx.Fx;
 import dev.rbm72.weaponsplugin.items.Rarity;
 import dev.rbm72.weaponsplugin.items.Weapon;
+import dev.rbm72.weaponsplugin.listeners.PlayerSummonTargetListener;
 import dev.rbm72.weaponsplugin.status.StatusEffectManager;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -35,6 +36,11 @@ import java.util.List;
 public final class Mournsong extends Weapon {
 
     private static final Color PALE_VIOLET = Color.fromRGB(160, 130, 220);
+
+    /** How often a live wraith re-checks that it is still pointed at something worth hitting. */
+    private static final int RETARGET_INTERVAL_TICKS = 20;
+    /** How far a wraith will look for a new target, measured from itself. */
+    private static final double RETARGET_RADIUS = 16.0;
 
     private final double wailRadius;
     private final double wailDamage;
@@ -215,15 +221,7 @@ public final class Mournsong extends Weapon {
                 maxHealthAttr.setBaseValue(wraithHealth);
                 vex.setHealth(wraithHealth);
             }
-            retargetToNearestHostile(vex, player);
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    if (vex.isValid()) {
-                        vex.remove();
-                    }
-                }
-            }.runTaskLater(plugin, wraithDurationTicks);
+            commissionWraith(vex, player, wraithDurationTicks);
         }
     }
 
@@ -273,33 +271,83 @@ public final class Mournsong extends Weapon {
                     maxHealthAttr.setBaseValue(requiemHealth);
                     vex.setHealth(requiemHealth);
                 }
-                retargetToNearestHostile(vex, player);
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        if (vex.isValid()) {
-                            vex.remove();
-                        }
-                    }
-                }.runTaskLater(plugin, requiemDurationTicks);
+                commissionWraith(vex, player, requiemDurationTicks);
             }
         }
     }
 
-    private void retargetToNearestHostile(Mob ally, Player player) {
-        LivingEntity nearestHostile = null;
-        double closest = 16.0;
-        for (Entity entity : player.getWorld().getNearbyEntities(player.getLocation(), 16, 16, 16)) {
-            if (entity instanceof Monster monster) {
-                double dist = monster.getLocation().distance(player.getLocation());
-                if (dist < closest) {
-                    closest = dist;
-                    nearestHostile = monster;
+    /**
+     * Turns a freshly spawned {@link Vex} into an ally that stays one, and schedules its expiry.
+     * <p>
+     * A Vex is a vanilla hostile, so left alone its own AI picks the nearest player — which, standing
+     * two blocks away having just summoned it, is the wielder. Two things were missing and both matter:
+     * <ul>
+     *   <li><b>The tag.</b> {@link PlayerSummonTargetListener} already blanket-refuses any summon's
+     *       attempt to target a player, and the other three summoning weapons stamp its key. Mournsong
+     *       never did, so nothing stopped the wraiths turning on their owner.</li>
+     *   <li><b>Re-acquisition.</b> Targeting ran exactly once, at spawn. The moment the wraith killed
+     *       what it was pointed at — or was summoned with nothing in range — it fell back to stock AI
+     *       and stayed there for the rest of its life.</li>
+     * </ul>
+     */
+    private void commissionWraith(Vex wraith, Player owner, int durationTicks) {
+        wraith.getPersistentDataContainer().set(
+                new org.bukkit.NamespacedKey(plugin, PlayerSummonTargetListener.KEY_NAME),
+                org.bukkit.persistence.PersistentDataType.BYTE, (byte) 1);
+        retargetToNearestHostile(wraith, owner);
+
+        new BukkitRunnable() {
+            int elapsed = 0;
+
+            @Override
+            public void run() {
+                if (!wraith.isValid() || !owner.isOnline() || elapsed >= durationTicks) {
+                    if (wraith.isValid()) {
+                        wraith.remove();
+                    }
+                    cancel();
+                    return;
                 }
+                LivingEntity current = wraith.getTarget();
+                if (current == null || !current.isValid() || current.isDead() || current instanceof Player) {
+                    retargetToNearestHostile(wraith, owner);
+                }
+                elapsed += RETARGET_INTERVAL_TICKS;
+            }
+        }.runTaskTimer(plugin, RETARGET_INTERVAL_TICKS, RETARGET_INTERVAL_TICKS);
+    }
+
+    /**
+     * Nearest thing worth attacking, from the wraith's own position rather than the wielder's — a
+     * wraith that has chased something across the arena should re-acquire near itself.
+     * <p>
+     * Deliberately not restricted to {@link Monster}. Half of what this weapon exists to be pointed at
+     * fails that test: an Ender Dragon, an Iron Golem, a Ravager-shaped boss add. Anything living that
+     * is not a player, not another summon and not the wielder's own pet is fair game.
+     */
+    private void retargetToNearestHostile(Mob ally, Player player) {
+        LivingEntity nearest = null;
+        double closest = RETARGET_RADIUS;
+        var summonKey = new org.bukkit.NamespacedKey(plugin, PlayerSummonTargetListener.KEY_NAME);
+        for (Entity entity : ally.getWorld().getNearbyEntities(ally.getLocation(), RETARGET_RADIUS, RETARGET_RADIUS, RETARGET_RADIUS)) {
+            if (!(entity instanceof LivingEntity living) || living.isDead() || living.equals(ally) || living.equals(player)) {
+                continue;
+            }
+            if (living instanceof Player
+                    || living.getPersistentDataContainer().has(summonKey, org.bukkit.persistence.PersistentDataType.BYTE)) {
+                continue;
+            }
+            if (living instanceof org.bukkit.entity.Tameable tameable && player.equals(tameable.getOwner())) {
+                continue;
+            }
+            double distance = living.getLocation().distance(ally.getLocation());
+            if (distance < closest) {
+                closest = distance;
+                nearest = living;
             }
         }
-        if (nearestHostile != null) {
-            ally.setTarget(nearestHostile);
+        if (nearest != null) {
+            ally.setTarget(nearest);
         }
     }
 }
