@@ -156,6 +156,17 @@ mkdirSync(itemsDir, { recursive: true });
 for (const [id, model] of Object.entries(MCD_MAPPING)) writeItem(id, `mcd:item/${model}`);
 for (const [id, model] of Object.entries(BOM_MAPPING)) writeItem(id, `bom:item/${model}`);
 
+// Boss music/sound events live in resourcepack/ (they are plugin-authored, not
+// vendored art), but the client only reads one pack's worth of weaponsplugin
+// assets in practice — so carry them in here and ship a single pack.
+const soundSrc = join(ROOT, 'resourcepack', 'assets', 'weaponsplugin');
+for (const name of ['sounds.json', 'sounds']) {
+  const from = join(soundSrc, name);
+  if (existsSync(from)) {
+    cpSync(from, join(TMP, 'assets', 'weaponsplugin', name), { recursive: true });
+  }
+}
+
 // Track the source packs' format window so the pack never loads as
 // "incompatible" against the assets it vendors. MCD is the narrower of the two.
 const srcMeta = mcdSrc
