@@ -11,8 +11,12 @@ node_modules/
 plugin/.gradle/
 plugin/build/
 plugin/bin/
+functionplugin/.gradle/
+functionplugin/build/
+functionplugin/bin/
 # Machine-local JDK path / truststore — copy plugin/gradle.properties.example instead
 plugin/gradle.properties
+functionplugin/gradle.properties
 
 # Editor/OS
 .idea/

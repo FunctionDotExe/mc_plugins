@@ -12,7 +12,7 @@ of those bugs actually shipped and had to be found in play — do not rediscover
 
 ## 1. Repo Orientation
 
-- **Repo root:** `C:\Users\rbm72\Documents\GitHub\mc_plugins`
+- **Repo root:** the root of this checkout
 - **Plugin module:** `plugin/` (Gradle, Java 21+, Paper API 26.2)
 - **Boss framework:** `plugin/src/main/java/dev/rbm72/weaponsplugin/boss/`
 - **Boss definitions:** `boss/bosses/*.java` (17 bosses)

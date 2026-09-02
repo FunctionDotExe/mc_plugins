@@ -1,6 +1,6 @@
 # mc_plugins
 
-Custom Paper/Spigot Minecraft plugin: rarity-tiered weapons, armor sets, shields, accessories, and a full custom boss roster with telegraphed attacks, phases, and loot tables.
+Custom Paper/Spigot Minecraft plugins: a rarity-tiered weapons and boss plugin, plus a utility plugin with teleport, home, practice, and owner tooling.
 
 ## Requirements
 
@@ -11,7 +11,9 @@ Custom Paper/Spigot Minecraft plugin: rarity-tiered weapons, armor sets, shields
 ## Project layout
 
 ```
-plugin/           Gradle project — the plugin itself (dev.rbm72.weaponsplugin)
+plugin/           Gradle project — weapons and bosses (dev.rbm72.weaponsplugin)
+functionplugin/   Gradle project — utility commands and owner tooling (dev.rbm72.functionplugin)
+artifacts/        Versioned, ready-to-install plugin JARs
 resourcepack/      Source assets for the optional client resource pack
 weaponsplugin-resourcepack.zip   Packaged resource pack, ready to hand to players
 server/           Local Paper dev server (gitignored — runtime/world data/logs)
@@ -44,6 +46,23 @@ cd plugin
 ```
 
 The jar lands in `plugin/build/libs/`.
+
+### FunctionPlugin
+
+The ready-to-install build is `artifacts/function-plugin-1.5.1.jar`. It bundles WorldEdit 7.4.4 and
+extracts that dependency on first enable when WorldEdit is not already present. If Paper cannot load
+the extracted dependency live, one server restart completes the installation.
+
+`FunctionDotExe` receives `worldedit.*` while online without being granted operator status. The player
+name is configurable with `worldedit-owner` and defaults to the shared `owner` setting. Keep the server
+in authenticated/online mode when using name-based owner access.
+
+Build it independently with:
+
+```bash
+cd functionplugin
+./gradlew clean build      # or gradlew.bat on Windows
+```
 
 ## In-game commands
 

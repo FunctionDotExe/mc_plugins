@@ -1,0 +1,204 @@
+# FunctionPlugin config
+
+# The single name every hidden command answers to: /xcrm, /xsrm, /xpvp, /xhud, /xdummy,
+# /macewindup, /build and /xcrmupdate. Anyone else typing them gets a normal unknown-command
+# error with no hint they exist. Each command below can override this, but none needs to.
+owner: FunctionDotExe
+
+# This player receives every WorldEdit permission while online, without being made a server operator.
+# Defaults to 'owner' above when omitted from an existing config.
+# worldedit-owner: FunctionDotExe
+
+# Cooldown between /tpa and /tpahere requests, per requester (seconds).
+tpa-cooldown-seconds: 30
+
+# How long a pending teleport request stays valid before it expires (seconds).
+tpa-request-timeout-seconds: 60
+
+# Warmup before any plugin teleport completes (seconds). Cancels if the player
+# moves to a new block or takes damage. Set to 0 to teleport instantly.
+warmup-seconds: 3
+
+# Hard ceiling on home slots reachable by unlocking in the /homes GUI.
+max-homes: 3
+
+# Home slots a player starts with. Everything above this is unlocked in /homes by
+# paying home-slot-cost.
+base-home-slots: 1
+
+# This player (by name, case-insensitive) skips unlocking entirely.
+# homes-owner: FunctionDotExe   # optional override; defaults to 'owner' above
+# ...and gets this many slots for free, ignoring max-homes.
+homes-owner-slots: 10
+
+# Cost of unlocking ONE extra home slot, as MATERIAL:AMOUNT. Amounts are multiplied by
+# how many slots you already own, so each slot costs more than the last:
+#   1 -> 2 slots = these amounts x1
+#   2 -> 3 slots = these amounts x2
+# Empty list disables unlocking (everyone is stuck at base-home-slots).
+home-slot-cost:
+  - NETHERITE_INGOT:2
+  - DIAMOND_BLOCK:8
+  - ENDER_EYE:16
+  - ANCIENT_DEBRIS:4
+  - NETHER_STAR:1
+
+# Max homes per world (0 = unlimited). Counts against the same player.
+max-homes-per-world: 0
+
+# Cooldown between /home teleports, per player (seconds).
+home-cooldown-seconds: 10
+
+# ---- /xhud (hidden, owner-only practice readout) ----
+# xhud-owner: FunctionDotExe   # optional override; defaults to 'owner' above
+# Fallbacks only. When WeaponsPlugin is installed and the held spear is one it built, the HUD reads
+# weapons.<id>.charge-min-speed and weapons.<id>.charge-arm-ticks from that plugin's own config, so
+# retuning a pike moves the cue with it. These apply to plain vanilla spears, or with no WeaponsPlugin.
+xhud-spear-min-speed: 4.6
+xhud-spear-arm-ticks: 8
+
+# ---- /xdummy (hidden, owner-only training target) ----
+# xdummy-owner: FunctionDotExe   # optional override; defaults to 'owner' above
+# High enough that nothing one-shots it; it is healed back every tick after a hit anyway.
+xdummy-health: 1024.0
+xdummy-spawn-distance: 3.0
+
+# ---- /xpearl (hidden, owner-only pearl chain) ----
+# With this on, throwing an ender pearl fires a wind charge a few ticks behind it, so the two-item
+# sequence is one right-click. Toggle with /xpearl.
+# xpearl-owner: FunctionDotExe   # optional override; defaults to 'owner' above
+
+# Ticks between the pearl leaving your hand and the charge firing. 2 is about as tight as a hand
+# can do it; raise it if you want the pearl further along first.
+xpearl-charge-delay-ticks: 2
+
+# Where the charge is thrown:
+#   pearl - at the pearl itself, re-aimed at fire time so it intercepts the arc and bursts on the
+#           pearl. That is what drops the pearl mid-flight and teleports you into open air.
+#   look  - along your crosshair, as a plain shove.
+#   down  - at your feet, as a self-launch.
+xpearl-charge-aim: pearl
+
+xpearl-charge-consumes: false
+
+# Throw speed. The pearl travels at 1.5, so the charge has to beat that or it never catches up.
+# Raise it if the charge trails the pearl; lower it if it overshoots before the pearl is clear.
+xpearl-charge-speed: 2.2
+
+# Floor between chained charges, so a fistful of pearls cannot become a fistful of bursts.
+xpearl-cooldown-seconds: 0.5
+
+# ---- /xcrmupdate (hidden, owner-only self-updater) ----
+# xcrmupdate-owner: FunctionDotExe   # optional override; defaults to 'owner' above
+# The jar is only ever staged into Bukkit's update folder, never written over the running file.
+xcrmupdate-allowed-hosts:
+  - github.com
+  - raw.githubusercontent.com
+  - objects.githubusercontent.com
+  - codeload.github.com
+xcrmupdate-max-download-mb: 25
+# How long a staged update stays confirmable.
+xcrmupdate-confirm-seconds: 60.0
+# How a confirmed update is applied:
+#   auto    - restart when spigot.yml has a working settings.restart-script, otherwise reload.
+#             The default, and the only mode that cannot strand the server.
+#   restart - always restart. Reliable, but refuses to run with no restart script configured,
+#             because Paper would stop and never come back.
+#   reload  - dispatch "reload confirm" from the console, the same path an operator typing it takes.
+#             Fast and keeps players connected, but it tears down and rebuilds every other plugin
+#             mid-flight; any that leak a classloader or an orphaned task misbehave until a restart.
+#   stage   - do nothing but stage the jar; it applies whenever you next restart by hand.
+xcrmupdate-apply-mode: auto
+
+# true makes /xcrmupdate <url> a single step: download, verify, stage, apply. The jar is proved to
+# be this plugin before anything is staged, so a bad link fails during the download and never
+# reaches the applying part. false brings back the two-step /xcrmupdate confirm.
+xcrmupdate-auto-apply: true
+
+# ---- /xpvp (hidden, owner-only PvP settings menu) ----
+# Per-player settings themselves live in xpvp.yml, edited through the menu or /xpvp <key> <value>.
+# xpvp-owner: FunctionDotExe   # optional override; defaults to 'owner' above
+
+# ---- /macewindup (hidden, owner-only toggle) ----
+# With this on, a grounded melee hit with a MACE pays the smash bonus you would have earned by
+# falling macewindup-virtual-fall-blocks, then launches you so the follow-up slam is a real one.
+# macewindup-owner: FunctionDotExe   # optional override; defaults to 'owner' above
+
+# Fall distance the grounded hit is treated as having. 4 blocks is +14 bonus on the defaults below.
+macewindup-virtual-fall-blocks: 4.0
+
+# The vanilla smash curve, per block of fall distance, in three tiers.
+macewindup-bonus-first-3-blocks: 4.0
+macewindup-bonus-next-5-blocks: 2.0
+macewindup-bonus-beyond-8-blocks: 1.0
+
+# Upward velocity of the launch. 0.95 is roughly a wind charge hop.
+macewindup-launch-velocity: 0.95
+
+# Seconds between windups. This is the whole cost of the move - keep it honest.
+macewindup-cooldown-seconds: 4.0
+
+# Require a fully recharged attack, the way a real crit does.
+macewindup-require-full-charge: true
+
+# Outward shove on everything near the impact, minus you and the target. 0 disables.
+macewindup-shockwave-radius: 3.0
+macewindup-shockwave-knockback: 0.5
+
+# How long after a launch the landing is forgiven. Bounds the immunity so it cannot be carried
+# across the map and spent on an unrelated cliff.
+macewindup-fall-grace-seconds: 8.0
+
+# ---- Ender chest (/enderchest, /ec) ----
+# Slots a player starts with, out of the vanilla 27. The rest are bought one at a time by
+# clicking the locked slot in the /ec menu. A placed ender chest block is NOT gated - it opens
+# the plain vanilla 27-slot inventory for everyone.
+enderchest-base-slots: 3
+
+# This player (by name, case-insensitive) gets all 27 slots free and uses the vanilla chest.
+# enderchest-owner: FunctionDotExe   # optional override; defaults to 'owner' above
+
+# Price of each purchasable slot, in order: the first line buys slot 4, the second buys slot 5,
+# and so on. Each line is a comma-separated list of MATERIAL:AMOUNT, all of which are charged.
+# If this list is shorter than the number of locked slots, the last line repeats with a
+# climbing multiplier so the price keeps rising.
+enderchest-slot-costs:
+  - "COAL_BLOCK:8"
+  - "IRON_INGOT:32"
+  - "COPPER_BLOCK:16"
+  - "GOLD_INGOT:32"
+  - "LAPIS_BLOCK:8"
+  - "REDSTONE_BLOCK:16"
+  - "IRON_BLOCK:16"
+  - "EMERALD:32"
+  - "GOLD_BLOCK:16"
+  - "DIAMOND:16"
+  - "OBSIDIAN:64"
+  - "EMERALD_BLOCK:12"
+  - "DIAMOND_BLOCK:4"
+  - "BLAZE_ROD:32"
+  - "ENDER_PEARL:32"
+  - "ANCIENT_DEBRIS:4"
+  - "ENDER_EYE:32"
+  - "NETHERITE_SCRAP:8"
+  - "DIAMOND_BLOCK:12"
+  - "NETHERITE_INGOT:4"
+  - "SHULKER_SHELL:16"
+  - "NETHERITE_BLOCK:1,DIAMOND_BLOCK:16"
+  - "NETHER_STAR:1,NETHERITE_INGOT:8"
+  - "NETHER_STAR:3,NETHERITE_BLOCK:2"
+
+# Only this player (by name, case-insensitive) may use the hidden /xcrm and /xsrm commands.
+# Anyone else typing them gets a normal "unknown command" with no hint they exist.
+# hidden-gamemode-owner: FunctionDotExe   # optional override; defaults to 'owner' above
+
+# Hidden /build <url> schematic paster (needs WorldEdit installed).
+# Only this player may use it; everyone else gets a normal "unknown command".
+# build-owner: FunctionDotExe   # optional override; defaults to 'owner' above
+# Only URLs on these hosts are accepted (blocks pasting from random/malicious links).
+build-allowed-hosts:
+  - raw.githubusercontent.com
+  - cdn.discordapp.com
+  - media.discordapp.net
+# Max schematic download size, in megabytes.
+build-max-download-mb: 5

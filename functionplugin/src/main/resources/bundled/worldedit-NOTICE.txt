@@ -1,0 +1,8 @@
+WorldEdit 7.4.4+7546-f9e033f
+Copyright the WorldEdit team and contributors.
+Licensed under the GNU General Public License, version 3.
+
+License: https://github.com/EngineHub/WorldEdit/blob/f9e033f/LICENSE.txt
+Corresponding source: https://github.com/EngineHub/WorldEdit/tree/f9e033f
+
+WorldEdit is bundled unmodified as worldedit.jar and extracted as a separate plugin at runtime.
