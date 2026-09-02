@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "dev.rbm72"
-version = "1.5.1"
+version = "1.5.2"
 
 repositories {
     mavenCentral()

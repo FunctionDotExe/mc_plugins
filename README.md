@@ -49,7 +49,7 @@ The jar lands in `plugin/build/libs/`.
 
 ### FunctionPlugin
 
-The ready-to-install build is `artifacts/function-plugin-1.5.1.jar`. It bundles WorldEdit 7.4.4 and
+The ready-to-install build is `artifacts/function-plugin-1.5.2.jar`. It bundles WorldEdit 7.4.4 and
 extracts that dependency on first enable when WorldEdit is not already present. If Paper cannot load
 the extracted dependency live, one server restart completes the installation.
 

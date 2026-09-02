@@ -1,5 +1,5 @@
 name: FunctionPlugin
-version: '1.5.1'
+version: '1.5.2'
 main: dev.rbm72.functionplugin.FunctionPlugin
 api-version: '26.2'
 description: TPA suite, homes, and admin quality-of-life commands

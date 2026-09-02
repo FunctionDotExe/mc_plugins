@@ -78,6 +78,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipEntry;
 
@@ -201,6 +202,8 @@ public final class FunctionPlugin extends JavaPlugin implements Listener {
     private String updateApplyMode;
     private boolean updateAutoApply;
     private final Map<UUID, StagedUpdate> pendingUpdate = new HashMap<>();
+    private final AtomicBoolean updateDownloadInProgress = new AtomicBoolean();
+    private boolean updateRestartScheduled;
 
     // ---- /xpvp ----
     private String xpvpOwner;
@@ -312,8 +315,8 @@ public final class FunctionPlugin extends JavaPlugin implements Listener {
                 .toLowerCase(Locale.ROOT);
         updateAutoApply = getConfig().getBoolean("xcrmupdate-auto-apply", true);
         if (updateApplyMode.equals("auto") && restartScript() == null) {
-            getLogger().info("No restart script configured in spigot.yml, so /xcrmupdate will reload "
-                    + "instead of restarting. Set settings.restart-script for the reliable path.");
+            getLogger().info("No restart script configured in spigot.yml; /xcrmupdate will stage the "
+                    + "jar and ask for a hosting-panel restart.");
         }
 
         xpvpOwner = getConfig().getString("xpvp-owner", defaultOwner);
@@ -1194,7 +1197,6 @@ public final class FunctionPlugin extends JavaPlugin implements Listener {
             }
             return;
         }
-
         long now = System.currentTimeMillis();
         Long last = lastHomeTeleport.get(id);
         if (last != null && now - last < homeCooldownMillis) {
@@ -2425,13 +2427,25 @@ public final class FunctionPlugin extends JavaPlugin implements Listener {
     private record StagedUpdate(String fileName, long bytes, String version, long stagedAt) {}
 
     private void handleXcrmUpdate(Player player, String[] args) {
+        if (updateRestartScheduled) {
+            player.sendMessage(Component.text("A plugin-update restart is already scheduled.",
+                    NamedTextColor.YELLOW));
+            return;
+        }
         if (args.length == 1 && args[0].equalsIgnoreCase("confirm")) {
+            if (updateDownloadInProgress.get()) {
+                player.sendMessage(Component.text("The update download is still in progress; wait for it to finish.",
+                        NamedTextColor.YELLOW));
+                return;
+            }
             confirmXcrmUpdate(player);
             return;
         }
         if (args.length != 1) {
-            player.sendMessage(Component.text("Usage: /xcrmupdate <https-url-to-jar>   then /xcrmupdate confirm",
-                    NamedTextColor.RED));
+            String usage = updateAutoApply
+                    ? "Usage: /xcrmupdate <https-url-to-jar>"
+                    : "Usage: /xcrmupdate <https-url-to-jar>   then /xcrmupdate confirm";
+            player.sendMessage(Component.text(usage, NamedTextColor.RED));
             return;
         }
 
@@ -2452,14 +2466,27 @@ public final class FunctionPlugin extends JavaPlugin implements Listener {
             return;
         }
 
+        File updateDir;
+        try {
+            updateDir = validatedUpdateFolder();
+        } catch (IOException e) {
+            player.sendMessage(Component.text("Cannot stage update: " + e.getMessage(), NamedTextColor.RED));
+            return;
+        }
+        if (!updateDownloadInProgress.compareAndSet(false, true)) {
+            player.sendMessage(Component.text("An update download is already in progress.", NamedTextColor.YELLOW));
+            return;
+        }
+
         UUID id = player.getUniqueId();
         player.sendMessage(Component.text("Downloading update…", NamedTextColor.YELLOW));
         getServer().getScheduler().runTaskAsynchronously(this, () -> {
             StagedUpdate staged;
             try {
-                staged = downloadAndStageJar(uri);
+                staged = downloadAndStageJar(uri, updateDir);
             } catch (Exception e) {
                 getServer().getScheduler().runTask(this, () -> {
+                    updateDownloadInProgress.set(false);
                     Player pl = getServer().getPlayer(id);
                     if (pl != null) {
                         pl.sendMessage(Component.text("Update failed: " + e.getMessage(), NamedTextColor.RED));
@@ -2468,20 +2495,29 @@ public final class FunctionPlugin extends JavaPlugin implements Listener {
                 return;
             }
             getServer().getScheduler().runTask(this, () -> {
-                pendingUpdate.put(id, staged);
+                updateDownloadInProgress.set(false);
                 Player pl = getServer().getPlayer(id);
                 if (pl == null) {
                     return;
                 }
-                pl.sendMessage(Component.text("Staged " + staged.fileName() + "  version " + staged.version()
-                        + "  (" + (staged.bytes() / 1024) + " KB)", NamedTextColor.GREEN));
-                if (updateAutoApply) {
+                pl.sendMessage(Component.text("Staged FunctionPlugin " + staged.version() + " to replace "
+                        + staged.fileName() + "  (" + (staged.bytes() / 1024) + " KB)", NamedTextColor.GREEN));
+                pendingUpdate.put(id, staged);
+                boolean confirmationWillRestart = !updateAutoApply
+                        && (updateApplyMode.equals("auto") || updateApplyMode.equals("restart"))
+                        && restartScript() != null;
+                if (!confirmationWillRestart) {
                     // The jar was already proved to be this plugin before it was staged, so a bad link
                     // fails during download and never reaches here. Nothing is left to confirm.
+                    if (updateAutoApply) {
+                        pl.sendMessage(Component.text("Auto-apply is enabled; no /xcrmupdate confirm is needed.",
+                                NamedTextColor.GRAY));
+                    }
                     confirmXcrmUpdate(pl);
                 } else {
-                    pl.sendMessage(Component.text("/xcrmupdate confirm to apply it now (expires in "
-                            + (updateConfirmMillis / 1000) + "s).", NamedTextColor.YELLOW));
+                    pl.sendMessage(Component.text("/xcrmupdate confirm to approve the automatic restart (expires in "
+                            + (updateConfirmMillis / 1000) + "s). The verified jar is already staged.",
+                            NamedTextColor.YELLOW));
                 }
             });
         });
@@ -2490,25 +2526,30 @@ public final class FunctionPlugin extends JavaPlugin implements Listener {
     private void confirmXcrmUpdate(Player player) {
         StagedUpdate staged = pendingUpdate.remove(player.getUniqueId());
         if (staged == null) {
-            player.sendMessage(Component.text("Nothing staged. Run /xcrmupdate <url> first.", NamedTextColor.RED));
+            String message = updateAutoApply
+                    ? "No update is awaiting confirmation. Auto-apply is enabled, so confirm is not needed."
+                    : "No update is awaiting confirmation. If a jar was already staged, follow the restart "
+                            + "message shown after its download.";
+            player.sendMessage(Component.text(message, NamedTextColor.RED));
             return;
         }
         if (System.currentTimeMillis() - staged.stagedAt() > updateConfirmMillis) {
-            player.sendMessage(Component.text("That staged update expired. Run /xcrmupdate <url> again.",
-                    NamedTextColor.RED));
+            player.sendMessage(Component.text("The restart confirmation expired, but the verified jar remains "
+                    + "staged. Restart the server manually to apply it.", NamedTextColor.YELLOW));
             return;
         }
-        // "auto" is the default because it is the only mode that cannot strand the server: a restart
-        // with no restart script configured makes Paper stop and never come back, which is exactly the
-        // trip to the server files this command exists to avoid.
+        // A full restart is Paper's supported update-folder workflow and is also required when this
+        // plugin has just extracted a new dependency such as WorldEdit. Never stop a server that cannot
+        // launch itself again: with no restart script, keep the validated jar staged and ask the owner
+        // to restart it through the hosting panel.
         String mode = updateApplyMode;
-        boolean fellBack = false;
+        boolean needsPanelRestart = false;
         if (mode.equals("auto")) {
             if (restartScript() != null) {
                 mode = "restart";
             } else {
-                mode = "reload";
-                fellBack = true;
+                mode = "stage";
+                needsPanelRestart = true;
             }
         } else if (mode.equals("restart") && restartScript() == null) {
             player.sendMessage(Component.text("No restart script is set in spigot.yml — restarting would "
@@ -2517,39 +2558,35 @@ public final class FunctionPlugin extends JavaPlugin implements Listener {
             player.sendMessage(Component.text("The jar is still staged and applies on your next start.",
                     NamedTextColor.YELLOW));
             return;
+        } else if (mode.equals("reload")) {
+            mode = "stage";
+            needsPanelRestart = true;
+            player.sendMessage(Component.text("Plugin reloads are not a reliable update path; "
+                    + "reload mode now stages the update instead.", NamedTextColor.YELLOW));
         }
 
         if (mode.equals("stage")) {
-            player.sendMessage(Component.text("Update is staged. Restart or reload yourself to apply it "
-                    + "(xcrmupdate-apply-mode is 'stage').", NamedTextColor.YELLOW));
+            player.sendMessage(Component.text(needsPanelRestart
+                    ? "Update is staged. Restart the server from your hosting panel to apply it."
+                    : "Update is staged. Restart the server to apply it.", NamedTextColor.YELLOW));
             return;
         }
 
-        boolean restart = mode.equals("restart");
-        if (fellBack) {
-            player.sendMessage(Component.text("No restart script configured — reloading instead. "
-                    + "Set settings.restart-script in spigot.yml for the reliable path.",
-                    NamedTextColor.YELLOW));
+        if (!mode.equals("restart")) {
+            player.sendMessage(Component.text("Unknown xcrmupdate-apply-mode '" + updateApplyMode
+                    + "'. The update remains staged; restart the server to apply it.", NamedTextColor.RED));
+            return;
         }
-        getLogger().info((restart ? "Restarting" : "Reloading plugins") + " to apply staged update "
+        getLogger().info("Restarting to apply staged update "
                 + staged.fileName() + " requested by " + player.getName());
         for (Player online : getServer().getOnlinePlayers()) {
-            online.sendMessage(Component.text(restart
-                    ? "Server restarting to apply a plugin update…"
-                    : "Reloading plugins to apply an update…", NamedTextColor.YELLOW));
+            online.sendMessage(Component.text("Server restarting to apply a plugin update…",
+                    NamedTextColor.YELLOW));
         }
 
-        // A tick of grace so the notice reaches clients first. The reload is dispatched from the
-        // console sender, which is what "run it as an op would" means here — it is the same code path
-        // as an operator typing /reload confirm, warnings and all. Disabling every plugin closes their
-        // classloaders, which is what releases the lock on the old jar so the staged one can move in.
-        getServer().getScheduler().runTaskLater(this, () -> {
-            if (restart) {
-                getServer().restart();
-            } else {
-                getServer().dispatchCommand(getServer().getConsoleSender(), "reload confirm");
-            }
-        }, 20L);
+        // A tick of grace lets the notice reach clients before Paper restarts and consumes plugins/update.
+        updateRestartScheduled = true;
+        getServer().getScheduler().runTaskLater(this, () -> getServer().restart(), 20L);
     }
 
     /**
@@ -2577,80 +2614,103 @@ public final class FunctionPlugin extends JavaPlugin implements Listener {
      * swapping it under a running JVM is a good way to get a half-read class. The update folder is
      * the supported swap point: Bukkit moves it into place during the next startup.
      */
-    private StagedUpdate downloadAndStageJar(URI uri) throws IOException, InterruptedException {
-        HttpClient client = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .connectTimeout(Duration.ofSeconds(15))
-                .build();
-
-        // Redirects are followed by hand so every hop is re-checked against the allowlist; letting
-        // the client follow them silently would let a permitted host bounce us anywhere.
-        URI current = uri;
-        HttpResponse<InputStream> response = null;
-        for (int hop = 0; hop < 5; hop++) {
-            HttpRequest request = HttpRequest.newBuilder(current)
-                    .timeout(Duration.ofSeconds(60))
-                    .header("User-Agent", "FunctionPlugin")
-                    .GET()
-                    .build();
-            response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            int code = response.statusCode();
-            if (code == 200) {
-                break;
-            }
-            if (code / 100 != 3) {
-                try (InputStream ignored = response.body()) { /* drain */ }
-                throw new IOException("server returned HTTP " + code);
-            }
-            String location = response.headers().firstValue("location").orElse(null);
-            try (InputStream ignored = response.body()) { /* drain */ }
-            if (location == null) {
-                throw new IOException("redirect with no location header");
-            }
-            current = current.resolve(location);
-            if (!"https".equalsIgnoreCase(current.getScheme())
-                    || !updateAllowedHosts.contains(current.getHost() == null
-                            ? "" : current.getHost().toLowerCase(Locale.ROOT))) {
-                throw new IOException("redirected to a host that is not allowed: " + current.getHost());
-            }
-            response = null;
-        }
-        if (response == null || response.statusCode() != 200) {
-            throw new IOException("too many redirects");
-        }
-
+    private StagedUpdate downloadAndStageJar(URI uri, File updateDir)
+            throws IOException, InterruptedException {
         File dir = new File(getDataFolder(), "downloaded");
         if (!dir.exists() && !dir.mkdirs()) {
             throw new IOException("could not create download folder");
         }
-        File temp = new File(dir, "staged-update.jar");
+        File temp = Files.createTempFile(dir.toPath(), "function-plugin-update-", ".jar").toFile();
 
-        long total = 0;
-        byte[] buf = new byte[8192];
-        try (InputStream in = response.body(); OutputStream os = new FileOutputStream(temp)) {
-            int read;
-            while ((read = in.read(buf)) != -1) {
-                total += read;
-                if (total > updateMaxBytes) {
-                    os.close();
-                    temp.delete();
-                    throw new IOException("file exceeds the " + (updateMaxBytes / 1024 / 1024) + "MB cap");
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                    .followRedirects(HttpClient.Redirect.NEVER)
+                    .connectTimeout(Duration.ofSeconds(15))
+                    .build();
+
+            // Redirects are followed by hand so every hop is re-checked against the allowlist; letting
+            // the client follow them silently would let a permitted host bounce us anywhere.
+            URI current = uri;
+            HttpResponse<InputStream> response = null;
+            for (int hop = 0; hop < 5; hop++) {
+                HttpRequest request = HttpRequest.newBuilder(current)
+                        .timeout(Duration.ofSeconds(60))
+                        .header("User-Agent", "FunctionPlugin")
+                        .GET()
+                        .build();
+                response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                int code = response.statusCode();
+                if (code == 200) {
+                    break;
                 }
-                os.write(buf, 0, read);
+                if (code / 100 != 3) {
+                    try (InputStream ignored = response.body()) { /* drain */ }
+                    throw new IOException("server returned HTTP " + code);
+                }
+                String location = response.headers().firstValue("location").orElse(null);
+                try (InputStream ignored = response.body()) { /* drain */ }
+                if (location == null) {
+                    throw new IOException("redirect with no location header");
+                }
+                current = current.resolve(location);
+                if (!"https".equalsIgnoreCase(current.getScheme())
+                        || !updateAllowedHosts.contains(current.getHost() == null
+                                ? "" : current.getHost().toLowerCase(Locale.ROOT))) {
+                    throw new IOException("redirected to a host that is not allowed: " + current.getHost());
+                }
+                response = null;
+            }
+            if (response == null || response.statusCode() != 200) {
+                throw new IOException("too many redirects");
+            }
+
+            long total = 0;
+            byte[] buf = new byte[8192];
+            try (InputStream in = response.body(); OutputStream os = new FileOutputStream(temp)) {
+                int read;
+                while ((read = in.read(buf)) != -1) {
+                    total += read;
+                    if (total > updateMaxBytes) {
+                        throw new IOException("file exceeds the " + (updateMaxBytes / 1024 / 1024) + "MB cap");
+                    }
+                    os.write(buf, 0, read);
+                }
+            }
+
+            String version = verifyPluginJar(temp);
+
+            String runningName = getFile().getName();
+            File target = new File(updateDir, runningName);
+            Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            return new StagedUpdate(runningName, total, version, System.currentTimeMillis());
+        } finally {
+            try {
+                Files.deleteIfExists(temp.toPath());
+            } catch (IOException e) {
+                getLogger().warning("Could not delete temporary update file " + temp.getName() + ": "
+                        + e.getMessage());
             }
         }
+    }
 
-        String version = verifyPluginJar(temp);
-
-        File updateDir = getServer().getUpdateFolderFile();
+    /**
+     * Reject a blank/disabled update-folder setting before it can resolve to the live plugins folder.
+     * Replacing the running jar in place is unsafe and fails outright on platforms that lock loaded jars.
+     */
+    private File validatedUpdateFolder() throws IOException {
+        File pluginsDir = getDataFolder().getParentFile().getCanonicalFile();
+        File updateDir = getServer().getUpdateFolderFile().getCanonicalFile();
+        if (updateDir.equals(pluginsDir)) {
+            throw new IOException("Bukkit's update folder is disabled; set settings.update-folder to 'update' "
+                    + "in bukkit.yml");
+        }
         if (!updateDir.exists() && !updateDir.mkdirs()) {
-            temp.delete();
             throw new IOException("could not create the update folder");
         }
-        String runningName = getFile().getName();
-        File target = new File(updateDir, runningName);
-        Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
-        return new StagedUpdate(runningName, total, version, System.currentTimeMillis());
+        if (!updateDir.isDirectory()) {
+            throw new IOException("the configured update folder is not a directory");
+        }
+        return updateDir;
     }
 
     /**

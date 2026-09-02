@@ -97,22 +97,21 @@ xcrmupdate-allowed-hosts:
   - objects.githubusercontent.com
   - codeload.github.com
 xcrmupdate-max-download-mb: 25
-# How long a staged update stays confirmable.
+# How long a manually requested restart stays confirmable. The verified jar remains safely staged
+# if this expires and will still apply on the next server restart.
 xcrmupdate-confirm-seconds: 60.0
-# How a confirmed update is applied:
-#   auto    - restart when spigot.yml has a working settings.restart-script, otherwise reload.
-#             The default, and the only mode that cannot strand the server.
+# How a confirmed or automatically accepted update is applied:
+#   auto    - restart when spigot.yml has a working settings.restart-script; otherwise leave the
+#             update staged and tell you to restart from the hosting panel. This is the default.
 #   restart - always restart. Reliable, but refuses to run with no restart script configured,
 #             because Paper would stop and never come back.
-#   reload  - dispatch "reload confirm" from the console, the same path an operator typing it takes.
-#             Fast and keeps players connected, but it tears down and rebuilds every other plugin
-#             mid-flight; any that leak a classloader or an orphaned task misbehave until a restart.
-#   stage   - do nothing but stage the jar; it applies whenever you next restart by hand.
+#   stage   - only stage the jar; it applies when the server is next restarted.
+#   reload  - legacy alias for stage. Full restart is the supported, reliable update path.
 xcrmupdate-apply-mode: auto
 
-# true makes /xcrmupdate <url> a single step: download, verify, stage, apply. The jar is proved to
-# be this plugin before anything is staged, so a bad link fails during the download and never
-# reaches the applying part. false brings back the two-step /xcrmupdate confirm.
+# true makes /xcrmupdate <url> a single step: download, verify, and either restart automatically or
+# tell you a hosting-panel restart is needed. The jar is proved to be this plugin before staging.
+# false requires /xcrmupdate confirm before an automatic restart is attempted.
 xcrmupdate-auto-apply: true
 
 # ---- /xpvp (hidden, owner-only PvP settings menu) ----
